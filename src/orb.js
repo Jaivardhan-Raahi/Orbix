@@ -12,6 +12,8 @@ export class Orb {
         this.group.add(this.glow);
         this.scene.add(this.group);
         
+        this.mesh.userData.type = "orb"; // Allow self-detection
+
         this.time = 0;
         this.baseScale = 1.0;
         this.pulseFrequency = 2.0;
@@ -21,6 +23,8 @@ export class Orb {
         this.targetDistance = 1.5;
         this.jitter = new THREE.Vector3();
         this.jitterTimer = 0;
+        this.isBeingLookedAt = false;
+        this.lookAtTimer = 0;
     }
 
     createMesh() {

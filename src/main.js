@@ -111,13 +111,19 @@ class App {
         
         this.raycaster.set(camPos, camDir);
 
-        // Filter for objects with userData.type
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
         const hit = intersects.find(i => i.object.userData && i.object.userData.type);
 
         if (hit) {
             const objectType = hit.object.userData.type;
-            if (this.lookObject !== objectType) {
+            
+            // Special case for the Orb itself
+            if (objectType === 'orb') {
+                this.orb.isBeingLookedAt = true;
+                this.orb.lookAtTimer = 2.0; // Stay focused for 2 seconds
+            }
+
+            if (this.lookObject !== objectType && objectType !== 'orb') {
                 console.log(`[Look Detection] User is looking at: ${objectType}`);
                 this.lookObject = objectType;
                 this.triggerAIReaction(objectType);
@@ -127,6 +133,8 @@ class App {
         }
 
         if (this.aiCooldown > 0) this.aiCooldown -= deltaTime;
+        if (this.orb.lookAtTimer > 0) this.orb.lookAtTimer -= deltaTime;
+        else this.orb.isBeingLookedAt = false;
     }
 
     triggerAIReaction(type) {
@@ -143,8 +151,6 @@ class App {
         console.log(`[AI Interaction] ${message}`);
         
         this.aiCooldown = 4.0; // 4 second cooldown
-        
-        // Visual feedback on the orb
         this.orb.setColor(0xffaa00);
         setTimeout(() => this.orb.setColor(0x00ffff), 800);
     }
@@ -154,26 +160,38 @@ class App {
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
         const camRight = new THREE.Vector3();
+        const camUp = new THREE.Vector3(0, 1, 0); // World UP
         
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
-        camRight.crossVectors(camDir, activeCamera.up).normalize();
         
-        // Calculate offset position: Forward + Right + Down
-        // Distance from gaze center: 0.5m right, 0.3m down
-        const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
-            .add(camRight.multiplyScalar(0.5))
-            .add(new THREE.Vector3(0, -0.3, 0));
+        // Calculate Right vector: Forward x UP
+        camRight.crossVectors(camDir, camUp).normalize();
+        
+        // Final Position: camera + forward * 1.5 + right * 0.8 + up * 0.3
+        const offset = camDir.clone().multiplyScalar(this.orb.targetDistance) // Forward
+            .add(camRight.multiplyScalar(0.8)) // Right
+            .add(new THREE.Vector3(0, 0.3, 0)); // Up
 
         const targetPos = camPos.clone().add(offset).add(this.orb.jitter);
         
-        // If looking at an object, shift slightly closer to it
-        if (this.lookObject) {
-            targetPos.lerp(camPos.clone().add(camDir.multiplyScalar(this.orb.targetDistance * 0.8)), 0.3);
-        }
+        // Use a softer LERP for "floating" feel (0.1 weight equivalent over time)
+        this.orb.group.position.lerp(targetPos, 2.0 * deltaTime);
         
-        this.orb.group.position.lerp(targetPos, 2.5 * deltaTime);
-        this.orb.group.lookAt(camPos);
+        // Rotation Logic
+        if (this.orb.isBeingLookedAt) {
+            // Look directly at user when engaged
+            this.orb.group.lookAt(camPos);
+        } else {
+            // Idle: Face forward (in the direction the user is looking)
+            const targetRotation = new THREE.Quaternion();
+            const dummy = new THREE.Object3D();
+            dummy.position.copy(this.orb.group.position);
+            dummy.lookAt(this.orb.group.position.clone().add(camDir));
+            targetRotation.copy(dummy.quaternion);
+            
+            this.orb.group.quaternion.slerp(targetRotation, 1.5 * deltaTime);
+        }
     }
 }
 
