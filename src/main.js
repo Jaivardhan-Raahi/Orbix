@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { XRManager } from './xr.js';
 import { Orb } from './orb.js';
 import { Environment } from './environment.js';
+import { chatWithAI } from './ai.js';
+import { speak } from './voice.js';
+import { ChatUI } from './ui.js';
 
 class App {
     constructor() {
@@ -13,24 +16,18 @@ class App {
         this.renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(this.renderer.domElement);
 
-        // Movement State
+        // State
         this.keys = {};
         this.moveSpeed = 2.0;
         this.playerVelocity = new THREE.Vector3();
         this.lookObject = null;
         this.aiCooldown = 0;
 
-        // Lighting
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
-        this.scene.add(hemiLight);
-
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(5, 10, 7);
-        this.scene.add(dirLight);
-
+        // Managers
         this.xrManager = new XRManager(this.renderer, this.scene, this.camera);
         this.orb = new Orb(this.scene);
         this.environment = new Environment(this.scene);
+        this.chatUI = new ChatUI();
         this.raycaster = new THREE.Raycaster();
         
         this.clock = new THREE.Clock();
@@ -41,18 +38,13 @@ class App {
 
     setupControls() {
         window.addEventListener('resize', () => this.onWindowResize());
-        
-        // Keyboard movement
         window.addEventListener('keydown', (e) => this.keys[e.code] = true);
         window.addEventListener('keyup', (e) => this.keys[e.code] = false);
 
-        // Click/Tap interaction
         window.addEventListener('pointerdown', (e) => {
             if (e.pointerType === 'touch') {
-                // Tap to move forward on mobile
                 this.playerVelocity.z -= 1.0;
             } else {
-                // Click to cycle distance
                 let nextDist = this.orb.targetDistance + 1.0;
                 if (nextDist > 3.5) nextDist = 1.0;
                 this.orb.setDistance(nextDist);
@@ -73,6 +65,7 @@ class App {
         this.updateMovement(deltaTime);
         this.updateLookDetection(deltaTime);
         this.updateFollow(deltaTime);
+        this.updateUI();
         
         this.environment.update(elapsedTime);
         this.orb.update(deltaTime);
@@ -84,21 +77,19 @@ class App {
         const direction = new THREE.Vector3();
         const right = new THREE.Vector3();
 
-        // Get movement directions relative to camera
         activeCamera.getWorldDirection(direction);
         direction.y = 0;
         direction.normalize();
 
         right.crossVectors(direction, activeCamera.up);
 
-        if (this.keys['KeyW']) this.playerVelocity.add(direction.multiplyScalar(this.moveSpeed * deltaTime));
-        if (this.keys['KeyS']) this.playerVelocity.sub(direction.multiplyScalar(this.moveSpeed * deltaTime));
-        if (this.keys['KeyA']) this.playerVelocity.sub(right.multiplyScalar(this.moveSpeed * deltaTime));
-        if (this.keys['KeyD']) this.playerVelocity.add(right.multiplyScalar(this.moveSpeed * deltaTime));
+        if (this.keys['KeyW']) this.playerVelocity.add(direction.clone().multiplyScalar(this.moveSpeed * deltaTime));
+        if (this.keys['KeyS']) this.playerVelocity.sub(direction.clone().multiplyScalar(this.moveSpeed * deltaTime));
+        if (this.keys['KeyA']) this.playerVelocity.sub(right.clone().multiplyScalar(this.moveSpeed * deltaTime));
+        if (this.keys['KeyD']) this.playerVelocity.add(right.clone().multiplyScalar(this.moveSpeed * deltaTime));
 
-        // Apply velocity to camera container (or scene in simplified world)
         this.camera.position.add(this.playerVelocity);
-        this.playerVelocity.multiplyScalar(0.9); // Friction
+        this.playerVelocity.multiplyScalar(0.9);
     }
 
     updateLookDetection(deltaTime) {
@@ -116,15 +107,10 @@ class App {
 
         if (hit) {
             const objectType = hit.object.userData.type;
-            
-            // Special case for the Orb itself
             if (objectType === 'orb') {
                 this.orb.isBeingLookedAt = true;
-                this.orb.lookAtTimer = 2.0; // Stay focused for 2 seconds
-            }
-
-            if (this.lookObject !== objectType && objectType !== 'orb') {
-                console.log(`[Look Detection] User is looking at: ${objectType}`);
+                this.orb.lookAtTimer = 2.0;
+            } else if (this.lookObject !== objectType) {
                 this.lookObject = objectType;
                 this.triggerAIReaction(objectType);
             }
@@ -137,22 +123,40 @@ class App {
         else this.orb.isBeingLookedAt = false;
     }
 
-    triggerAIReaction(type) {
+    async triggerAIReaction(type) {
         if (this.aiCooldown > 0) return;
-        
-        const responses = {
-            laptop: "Time to get some work done?",
-            book: "Researching something interesting?",
-            desk: "A clear workspace is a clear mind.",
-            pillar: "These pillars have seen a lot of history."
-        };
+        this.aiCooldown = 8.0; // 8 second cooldown between AI responses
 
-        const message = responses[type] || `User is looking at a ${type}.`;
-        console.log(`[AI Interaction] ${message}`);
+        const prompt = `User is looking at a ${type}. React to this as Orbix (strict AI companion). One short sentence.`;
         
-        this.aiCooldown = 4.0; // 4 second cooldown
-        this.orb.setColor(0xffaa00);
-        setTimeout(() => this.orb.setColor(0x00ffff), 800);
+        // Visual feedback (preparing to speak)
+        this.orb.setColor(0xffaa00); 
+
+        const response = await chatWithAI(prompt);
+        
+        // Finalize reaction
+        this.orb.setColor(0x00ffff);
+        speak(response);
+        
+        // Show bubble
+        const screenPos = this.getOrbScreenPosition();
+        this.chatUI.show(response, screenPos.x, screenPos.y);
+    }
+
+    updateUI() {
+        const screenPos = this.getOrbScreenPosition();
+        this.chatUI.updatePosition(screenPos.x, screenPos.y);
+    }
+
+    getOrbScreenPosition() {
+        const pos = new THREE.Vector3();
+        this.orb.group.getWorldPosition(pos);
+        pos.project(this.camera);
+
+        return {
+            x: (pos.x * 0.5 + 0.5) * window.innerWidth,
+            y: (pos.y * -0.5 + 0.5) * window.innerHeight
+        };
     }
 
     updateFollow(deltaTime) {
@@ -160,37 +164,31 @@ class App {
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
         const camRight = new THREE.Vector3();
-        const camUp = new THREE.Vector3(0, 1, 0); // World UP
+        const camUp = new THREE.Vector3(0, 1, 0);
         
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
-        
-        // Calculate Right vector: Forward x UP
         camRight.crossVectors(camDir, camUp).normalize();
         
-        // Final Position: camera + forward * 1.5 + right * 0.8 + up * 0.3
-        const offset = camDir.clone().multiplyScalar(this.orb.targetDistance) // Forward
-            .add(camRight.multiplyScalar(0.8)) // Right
-            .add(new THREE.Vector3(0, 0.3, 0)); // Up
+        const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
+            .add(camRight.multiplyScalar(0.8))
+            .add(new THREE.Vector3(0, 0.3, 0));
 
         const targetPos = camPos.clone().add(offset).add(this.orb.jitter);
         
-        // Use a softer LERP for "floating" feel (0.1 weight equivalent over time)
+        if (this.lookObject) {
+            targetPos.lerp(camPos.clone().add(camDir.multiplyScalar(this.orb.targetDistance * 0.8)), 0.3);
+        }
+
         this.orb.group.position.lerp(targetPos, 2.0 * deltaTime);
         
-        // Rotation Logic
         if (this.orb.isBeingLookedAt) {
-            // Look directly at user when engaged
             this.orb.group.lookAt(camPos);
         } else {
-            // Idle: Face forward (in the direction the user is looking)
-            const targetRotation = new THREE.Quaternion();
             const dummy = new THREE.Object3D();
             dummy.position.copy(this.orb.group.position);
             dummy.lookAt(this.orb.group.position.clone().add(camDir));
-            targetRotation.copy(dummy.quaternion);
-            
-            this.orb.group.quaternion.slerp(targetRotation, 1.5 * deltaTime);
+            this.orb.group.quaternion.slerp(dummy.quaternion, 1.5 * deltaTime);
         }
     }
 }
