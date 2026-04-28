@@ -23,6 +23,18 @@ class App {
         this.lookObject = null;
         this.aiCooldown = 0;
 
+        // Gaze Interaction State
+        this.gazeTimer = 0;
+        this.gazeDuration = 1.5; // Seconds to trigger
+        this.isGazing = false;
+        this.gazeTarget = null;
+
+        // UI Elements
+        this.crosshair = document.getElementById('crosshair');
+        this.progressCircle = document.querySelector('#gaze-progress circle');
+        this.progressContainer = document.getElementById('gaze-progress');
+        this.introPopup = document.getElementById('intro-popup');
+
         // Managers
         this.xrManager = new XRManager(this.renderer, this.scene, this.camera);
         this.orb = new Orb(this.scene);
@@ -34,6 +46,18 @@ class App {
         this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
         
         this.setupControls();
+        this.setupXRCallbacks();
+    }
+
+    setupXRCallbacks() {
+        // Show popup when XR session starts
+        const originalSetSession = this.renderer.xr.setSession.bind(this.renderer.xr);
+        this.renderer.xr.setSession = (session) => {
+            originalSetSession(session);
+            if (session) {
+                this.introPopup.style.display = 'block';
+            }
+        };
     }
 
     setupControls() {
@@ -64,12 +88,59 @@ class App {
         
         this.updateMovement(deltaTime);
         this.updateLookDetection(deltaTime);
+        this.updateGazeInteraction(deltaTime);
         this.updateFollow(deltaTime);
         this.updateUI();
         
         this.environment.update(elapsedTime);
         this.orb.update(deltaTime);
         this.renderer.render(this.scene, this.camera);
+    }
+
+    updateGazeInteraction(deltaTime) {
+        // 1. Raycast for DOM elements (simulated via position check)
+        // Since we are using standard HTML for UI, we check if the center of screen 
+        // overlaps with any element with data-interactive="true"
+        
+        const centerElement = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+        const isInteractive = centerElement && centerElement.getAttribute('data-interactive') === 'true';
+
+        if (isInteractive) {
+            this.isGazing = true;
+            this.gazeTarget = centerElement;
+            this.gazeTimer += deltaTime;
+            
+            // UI Feedback
+            this.crosshair.classList.add('active');
+            this.progressContainer.style.opacity = '1';
+            
+            const progress = Math.min(this.gazeTimer / this.gazeDuration, 1);
+            const offset = 113 * (1 - progress);
+            this.progressCircle.style.strokeDashoffset = offset;
+
+            if (this.gazeTimer >= this.gazeDuration) {
+                this.triggerGazeAction(centerElement.getAttribute('data-action'));
+                this.resetGaze();
+            }
+        } else {
+            this.resetGaze();
+        }
+    }
+
+    resetGaze() {
+        this.isGazing = false;
+        this.gazeTimer = 0;
+        this.gazeTarget = null;
+        this.crosshair.classList.remove('active');
+        this.progressContainer.style.opacity = '0';
+        this.progressCircle.style.strokeDashoffset = '113';
+    }
+
+    triggerGazeAction(action) {
+        if (action === 'close-popup') {
+            this.introPopup.style.display = 'none';
+            console.log("UI: Popup closed via gaze.");
+        }
     }
 
     updateMovement(deltaTime) {
