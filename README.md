@@ -23,10 +23,22 @@ npm install
 ```
 
 ### 4. Run locally
+
+#### Option A: Using Vercel CLI (Recommended)
+This automatically handles the frontend and the `/api` functions:
 ```bash
-npm run dev
+npm install -g vercel
+vercel dev
 ```
-Open the provided URL in a WebXR-compatible browser (e.g., Chrome on Android or Oculus Browser).
+
+#### Option B: Separate Frontend & Backend
+1. **Start the API Server:**
+   You can use a tool like `ts-node` or `node` to run a local wrapper for the API, or simply use the Vercel CLI. Ensure it runs on **port 3000**.
+2. **Start the Vite Dev Server:**
+   ```bash
+   npm run dev
+   ```
+   Vite will now proxy `/api/chat` to `localhost:3000/api/chat`.
 
 ## 🛠️ Tech Stack
 - **Engine:** [Three.js](https://threejs.org/)

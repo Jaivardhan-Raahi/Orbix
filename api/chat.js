@@ -1,0 +1,43 @@
+export default async function handler(req, res) {
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    const { message } = req.body;
+    const API_KEY = process.env.OPENROUTER_API_KEY;
+
+    if (!API_KEY) {
+        return res.status(500).json({ error: 'Server configuration error: Missing API Key' });
+    }
+
+    try {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${API_KEY}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are Orbix, a floating AI orb companion. You are slightly strict but helpful. Keep responses to ONE short sentence."
+                    },
+                    {
+                        "role": "user",
+                        "content": message
+                    }
+                ]
+            })
+        });
+
+        const data = await response.json();
+        const aiResponse = data.choices?.[0]?.message?.content || "Stay focused.";
+        
+        res.status(200).json({ response: aiResponse });
+    } catch (error) {
+        console.error("Proxy Error:", error);
+        res.status(500).json({ error: 'Failed to communicate with AI' });
+    }
+}
