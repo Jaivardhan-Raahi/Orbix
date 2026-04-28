@@ -26,7 +26,7 @@ export default async function handler(req, res) {
                 "X-Title": "Orbix AI Companion"
             },
             body: JSON.stringify({
-                "model": "google/gemini-2.0-flash-lite-preview-02-05:free", // Using a stable free model
+                "model": "openrouter/free", // Using a stable free model
                 "messages": [
                     {
                         "role": "system",
