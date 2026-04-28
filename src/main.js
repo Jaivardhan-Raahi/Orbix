@@ -13,6 +13,13 @@ class App {
         this.renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(this.renderer.domElement);
 
+        // Movement State
+        this.keys = {};
+        this.moveSpeed = 2.0;
+        this.playerVelocity = new THREE.Vector3();
+        this.lookObject = null;
+        this.aiCooldown = 0;
+
         // Lighting
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
         this.scene.add(hemiLight);
@@ -24,19 +31,32 @@ class App {
         this.xrManager = new XRManager(this.renderer, this.scene, this.camera);
         this.orb = new Orb(this.scene);
         this.environment = new Environment(this.scene);
+        this.raycaster = new THREE.Raycaster();
         
         this.clock = new THREE.Clock();
         this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
         
+        this.setupControls();
+    }
+
+    setupControls() {
         window.addEventListener('resize', () => this.onWindowResize());
         
-        // Add interaction: click/tap to move orb
-        window.addEventListener('pointerdown', () => {
-            // Cycle distance: 1m -> 2m -> 3m -> 1m
-            let nextDist = this.orb.targetDistance + 1.0;
-            if (nextDist > 3.5) nextDist = 1.0;
-            this.orb.setDistance(nextDist);
-            console.log(`Orb target distance: ${nextDist}m`);
+        // Keyboard movement
+        window.addEventListener('keydown', (e) => this.keys[e.code] = true);
+        window.addEventListener('keyup', (e) => this.keys[e.code] = false);
+
+        // Click/Tap interaction
+        window.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'touch') {
+                // Tap to move forward on mobile
+                this.playerVelocity.z -= 1.0;
+            } else {
+                // Click to cycle distance
+                let nextDist = this.orb.targetDistance + 1.0;
+                if (nextDist > 3.5) nextDist = 1.0;
+                this.orb.setDistance(nextDist);
+            }
         });
     }
 
@@ -50,7 +70,8 @@ class App {
         const deltaTime = this.clock.getDelta();
         const elapsedTime = this.clock.getElapsedTime();
         
-        // Always update follow logic, but use standard camera if not in XR
+        this.updateMovement(deltaTime);
+        this.updateLookDetection(deltaTime);
         this.updateFollow(deltaTime);
         
         this.environment.update(elapsedTime);
@@ -58,23 +79,83 @@ class App {
         this.renderer.render(this.scene, this.camera);
     }
 
+    updateMovement(deltaTime) {
+        const activeCamera = this.xrManager.getCamera();
+        const direction = new THREE.Vector3();
+        const right = new THREE.Vector3();
+
+        // Get movement directions relative to camera
+        activeCamera.getWorldDirection(direction);
+        direction.y = 0;
+        direction.normalize();
+
+        right.crossVectors(direction, activeCamera.up);
+
+        if (this.keys['KeyW']) this.playerVelocity.add(direction.multiplyScalar(this.moveSpeed * deltaTime));
+        if (this.keys['KeyS']) this.playerVelocity.sub(direction.multiplyScalar(this.moveSpeed * deltaTime));
+        if (this.keys['KeyA']) this.playerVelocity.sub(right.multiplyScalar(this.moveSpeed * deltaTime));
+        if (this.keys['KeyD']) this.playerVelocity.add(right.multiplyScalar(this.moveSpeed * deltaTime));
+
+        // Apply velocity to camera container (or scene in simplified world)
+        this.camera.position.add(this.playerVelocity);
+        this.playerVelocity.multiplyScalar(0.9); // Friction
+    }
+
+    updateLookDetection(deltaTime) {
+        const activeCamera = this.xrManager.getCamera();
+        this.raycaster.set(activeCamera.getWorldPosition(new THREE.Vector3()), activeCamera.getWorldDirection(new THREE.Vector3()));
+
+        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        const hit = intersects.find(i => i.object.userData.type);
+
+        if (hit) {
+            const objectType = hit.object.userData.type;
+            if (this.lookObject !== objectType) {
+                this.lookObject = objectType;
+                this.triggerAIReaction(objectType);
+            }
+        } else {
+            this.lookObject = null;
+        }
+
+        if (this.aiCooldown > 0) this.aiCooldown -= deltaTime;
+    }
+
+    triggerAIReaction(type) {
+        if (this.aiCooldown > 0) return;
+        
+        console.log(`AI: "Oh, you're looking at that ${type}. Interesting choice."`);
+        this.aiCooldown = 5.0; // 5 second cooldown
+        
+        // Visual feedback
+        this.orb.setColor(0xffaa00);
+        setTimeout(() => this.orb.setColor(0x00ffff), 1000);
+    }
+
     updateFollow(deltaTime) {
         const activeCamera = this.xrManager.getCamera();
-        
-        // 1. Get camera position and direction
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
+        const camRight = new THREE.Vector3();
         
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
+        camRight.crossVectors(camDir, activeCamera.up).normalize();
         
-        // 2. Calculate target position in front of gaze
-        const targetPos = camPos.clone().add(camDir.multiplyScalar(this.orb.targetDistance));
+        // Calculate offset position: Forward + Right + Down
+        // Distance from gaze center: 0.5m right, 0.3m down
+        const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
+            .add(camRight.multiplyScalar(0.5))
+            .add(new THREE.Vector3(0, -0.3, 0));
+
+        const targetPos = camPos.clone().add(offset).add(this.orb.jitter);
         
-        // 3. Smoothly move orb (LERP)
-        this.orb.group.position.lerp(targetPos, 2.0 * deltaTime);
+        // If looking at an object, shift slightly closer to it
+        if (this.lookObject) {
+            targetPos.lerp(camPos.clone().add(camDir.multiplyScalar(this.orb.targetDistance * 0.8)), 0.3);
+        }
         
-        // 4. Always face the user
+        this.orb.group.position.lerp(targetPos, 2.5 * deltaTime);
         this.orb.group.lookAt(camPos);
     }
 }

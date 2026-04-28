@@ -19,6 +19,8 @@ export class Orb {
 
         // Interaction state
         this.targetDistance = 1.5;
+        this.jitter = new THREE.Vector3();
+        this.jitterTimer = 0;
     }
 
     createMesh() {
@@ -62,10 +64,21 @@ export class Orb {
         const pulse = 1.0 + Math.sin(this.time * this.pulseFrequency) * this.pulseIntensity;
         this.group.scale.set(pulse, pulse, pulse);
         
-        // 2. Floating Animation
+        // 2. Autonomous Jitter (Move slightly on its own)
+        this.jitterTimer += deltaTime;
+        if (this.jitterTimer > 3.0) {
+            this.jitter.set(
+                (Math.random() - 0.5) * 0.2,
+                (Math.random() - 0.5) * 0.2,
+                (Math.random() - 0.5) * 0.2
+            );
+            this.jitterTimer = 0;
+        }
+
+        // 3. Floating Animation
         this.group.position.y += Math.sin(this.time * 1.5) * 0.0005;
 
-        // 3. Dynamic Glow Pulse
+        // 4. Dynamic Glow Pulse
         this.glow.material.opacity = 0.15 + Math.sin(this.time * 4) * 0.05;
     }
     

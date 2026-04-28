@@ -45,6 +45,7 @@ export class Environment {
             
             const pillar = new THREE.Mesh(pillarGeo, material);
             pillar.position.set(Math.cos(angle) * radius, 0.4, Math.sin(angle) * radius);
+            pillar.userData.type = "pillar"; // Mark for detection
             this.scene.add(pillar);
 
             // Floating Cubes
