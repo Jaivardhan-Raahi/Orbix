@@ -103,14 +103,22 @@ class App {
 
     updateLookDetection(deltaTime) {
         const activeCamera = this.xrManager.getCamera();
-        this.raycaster.set(activeCamera.getWorldPosition(new THREE.Vector3()), activeCamera.getWorldDirection(new THREE.Vector3()));
+        const camPos = new THREE.Vector3();
+        const camDir = new THREE.Vector3();
+        
+        activeCamera.getWorldPosition(camPos);
+        activeCamera.getWorldDirection(camDir);
+        
+        this.raycaster.set(camPos, camDir);
 
+        // Filter for objects with userData.type
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-        const hit = intersects.find(i => i.object.userData.type);
+        const hit = intersects.find(i => i.object.userData && i.object.userData.type);
 
         if (hit) {
             const objectType = hit.object.userData.type;
             if (this.lookObject !== objectType) {
+                console.log(`[Look Detection] User is looking at: ${objectType}`);
                 this.lookObject = objectType;
                 this.triggerAIReaction(objectType);
             }
@@ -124,12 +132,21 @@ class App {
     triggerAIReaction(type) {
         if (this.aiCooldown > 0) return;
         
-        console.log(`AI: "Oh, you're looking at that ${type}. Interesting choice."`);
-        this.aiCooldown = 5.0; // 5 second cooldown
+        const responses = {
+            laptop: "Time to get some work done?",
+            book: "Researching something interesting?",
+            desk: "A clear workspace is a clear mind.",
+            pillar: "These pillars have seen a lot of history."
+        };
+
+        const message = responses[type] || `User is looking at a ${type}.`;
+        console.log(`[AI Interaction] ${message}`);
         
-        // Visual feedback
+        this.aiCooldown = 4.0; // 4 second cooldown
+        
+        // Visual feedback on the orb
         this.orb.setColor(0xffaa00);
-        setTimeout(() => this.orb.setColor(0x00ffff), 1000);
+        setTimeout(() => this.orb.setColor(0x00ffff), 800);
     }
 
     updateFollow(deltaTime) {
