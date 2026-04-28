@@ -22,6 +22,7 @@ class App {
         this.playerVelocity = new THREE.Vector3();
         this.lookObject = null;
         this.aiCooldown = 0;
+        this.isXRActive = false; // Gate for AI and interaction
 
         // Gaze Interaction State
         this.gazeTimer = 0;
@@ -50,12 +51,20 @@ class App {
     }
 
     setupXRCallbacks() {
-        // Show popup when XR session starts
+        // Show popup ONLY after XR session starts
         const originalSetSession = this.renderer.xr.setSession.bind(this.renderer.xr);
         this.renderer.xr.setSession = (session) => {
             originalSetSession(session);
             if (session) {
+                console.log("XR: Session started. Activating interactions.");
+                this.isXRActive = true;
                 this.introPopup.style.display = 'block';
+                this.crosshair.style.display = 'block';
+            } else {
+                console.log("XR: Session ended. Deactivating interactions.");
+                this.isXRActive = false;
+                this.introPopup.style.display = 'none';
+                this.crosshair.style.display = 'none';
             }
         };
     }
@@ -86,9 +95,12 @@ class App {
         const deltaTime = this.clock.getDelta();
         const elapsedTime = this.clock.getElapsedTime();
         
-        this.updateMovement(deltaTime);
-        this.updateLookDetection(deltaTime);
-        this.updateGazeInteraction(deltaTime);
+        if (this.isXRActive) {
+            this.updateMovement(deltaTime);
+            this.updateLookDetection(deltaTime);
+            this.updateGazeInteraction(deltaTime);
+        }
+        
         this.updateFollow(deltaTime);
         this.updateUI();
         
