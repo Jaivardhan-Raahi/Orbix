@@ -23,7 +23,12 @@ export class Orb {
         });
         
         const orb = new THREE.Mesh(geometry, material);
-        orb.position.set(0, 0, -0.5); // Initial position in front
+        orb.position.set(0, 0, -2); // Start 2m away for safety
+        
+        // Add a point light inside the orb so it lights itself up clearly
+        const light = new THREE.PointLight(0x00ffff, 1, 2);
+        orb.add(light);
+        
         return orb;
     }
 

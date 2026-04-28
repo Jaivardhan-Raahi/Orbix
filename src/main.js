@@ -31,11 +31,14 @@ class App {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    render(time) {
+    render(time, frame) {
         const deltaTime = this.clock.getDelta();
         
         if (this.xrManager.getIsPresenting()) {
-            this.updateFollow(deltaTime);
+            if (frame) {
+                // XR session is active and providing frames
+                this.updateFollow(deltaTime);
+            }
         }
         
         this.orb.update(deltaTime);
@@ -43,17 +46,19 @@ class App {
     }
 
     updateFollow(deltaTime) {
-        // Simple follow logic: Orb stays in front of the camera
-        const xrCamera = this.renderer.xr.getCamera(this.camera);
-        const targetPos = new THREE.Vector3(0, 0, -0.6); // 60cm in front
-        targetPos.applyMatrix4(xrCamera.matrixWorld);
+        // Use the active camera (XR or standard)
+        const activeCamera = this.xrManager.getCamera();
         
-        // Smooth interpolation (LERP)
-        this.orb.mesh.position.lerp(targetPos, 2 * deltaTime);
+        // Target position: 1.5 meters in front of the camera
+        const targetPos = new THREE.Vector3(0, 0, -1.5); 
+        targetPos.applyMatrix4(activeCamera.matrixWorld);
         
-        // Smoothly look at the user
+        // Smoothly move the orb toward the target
+        this.orb.mesh.position.lerp(targetPos, 1.5 * deltaTime);
+        
+        // Look at the camera
         const camPos = new THREE.Vector3();
-        xrCamera.getWorldPosition(camPos);
+        activeCamera.getWorldPosition(camPos);
         this.orb.mesh.lookAt(camPos);
     }
 }

@@ -48,8 +48,12 @@ export class XRManager {
         button.onclick = async () => {
             try {
                 console.log('WebXR: Requesting immersive-vr session...');
-                const session = await navigator.xr.requestSession('immersive-vr');
-                console.log('WebXR: Session started successfully.');
+                // We request local-floor to ensure a stable ground reference
+                const session = await navigator.xr.requestSession('immersive-vr', {
+                    optionalFeatures: ['local-floor', 'bounded-floor']
+                });
+                
+                console.log('WebXR: Session granted. Setting session in renderer...');
                 this.renderer.xr.setSession(session);
                 button.textContent = 'Exit VR';
                 
