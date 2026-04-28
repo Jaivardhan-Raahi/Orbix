@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { XRManager } from './xr.js';
 import { Orb } from './orb.js';
+import { Environment } from './environment.js';
 
 class App {
     constructor() {
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 20);
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
         
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -13,14 +14,19 @@ class App {
         document.body.appendChild(this.renderer.domElement);
 
         // Lighting
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-        this.scene.add(light);
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        this.scene.add(hemiLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 7);
+        this.scene.add(dirLight);
 
         this.xrManager = new XRManager(this.renderer, this.scene, this.camera);
         this.orb = new Orb(this.scene);
+        this.environment = new Environment(this.scene);
         
         this.clock = new THREE.Clock();
-        this.renderer.setAnimationLoop((time) => this.render(time));
+        this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
         
         window.addEventListener('resize', () => this.onWindowResize());
     }
@@ -33,14 +39,15 @@ class App {
 
     render(time, frame) {
         const deltaTime = this.clock.getDelta();
+        const elapsedTime = this.clock.getElapsedTime();
         
         if (this.xrManager.getIsPresenting()) {
             if (frame) {
-                // XR session is active and providing frames
                 this.updateFollow(deltaTime);
             }
         }
         
+        this.environment.update(elapsedTime);
         this.orb.update(deltaTime);
         this.renderer.render(this.scene, this.camera);
     }
