@@ -6,9 +6,10 @@ export default async function handler(req, res) {
     const { message } = req.body;
     const API_KEY = process.env.OPENROUTER_API_KEY;
 
-    // Server-side check for key availability (logged to server console, not frontend)
+    console.log(`[Server] Received message: "${message}"`);
+
     if (!API_KEY) {
-        console.error("[Server] OPENROUTER_API_KEY is missing in environment variables.");
+        console.error("[Server] CRITICAL: OPENROUTER_API_KEY is missing!");
         return res.status(200).json({ response: "Stay focused." });
     }
 
@@ -37,14 +38,15 @@ export default async function handler(req, res) {
         const data = await response.json();
         
         if (data.error) {
-            console.error("[Server] OpenRouter API Error:", data.error);
+            console.error("[Server] OpenRouter Error:", data.error);
             return res.status(200).json({ response: "Stay focused." });
         }
 
         const aiResponse = data.choices?.[0]?.message?.content || "Stay focused.";
+        console.log(`[Server] AI Response: "${aiResponse}"`);
         res.status(200).json({ response: aiResponse });
     } catch (error) {
-        console.error("[Server] Proxy Error:", error);
+        console.error("[Server] Exception:", error);
         res.status(200).json({ response: "Stay focused." });
     }
 }
