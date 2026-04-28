@@ -29,6 +29,15 @@ class App {
         this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
         
         window.addEventListener('resize', () => this.onWindowResize());
+        
+        // Add interaction: click/tap to move orb
+        window.addEventListener('pointerdown', () => {
+            // Cycle distance: 1m -> 2m -> 3m -> 1m
+            let nextDist = this.orb.targetDistance + 1.0;
+            if (nextDist > 3.5) nextDist = 1.0;
+            this.orb.setDistance(nextDist);
+            console.log(`Orb target distance: ${nextDist}m`);
+        });
     }
 
     onWindowResize() {
@@ -41,11 +50,8 @@ class App {
         const deltaTime = this.clock.getDelta();
         const elapsedTime = this.clock.getElapsedTime();
         
-        if (this.xrManager.getIsPresenting()) {
-            if (frame) {
-                this.updateFollow(deltaTime);
-            }
-        }
+        // Always update follow logic, but use standard camera if not in XR
+        this.updateFollow(deltaTime);
         
         this.environment.update(elapsedTime);
         this.orb.update(deltaTime);
@@ -53,20 +59,23 @@ class App {
     }
 
     updateFollow(deltaTime) {
-        // Use the active camera (XR or standard)
         const activeCamera = this.xrManager.getCamera();
         
-        // Target position: 1.5 meters in front of the camera
-        const targetPos = new THREE.Vector3(0, 0, -1.5); 
-        targetPos.applyMatrix4(activeCamera.matrixWorld);
-        
-        // Smoothly move the orb toward the target
-        this.orb.mesh.position.lerp(targetPos, 1.5 * deltaTime);
-        
-        // Look at the camera
+        // 1. Get camera position and direction
         const camPos = new THREE.Vector3();
+        const camDir = new THREE.Vector3();
+        
         activeCamera.getWorldPosition(camPos);
-        this.orb.mesh.lookAt(camPos);
+        activeCamera.getWorldDirection(camDir);
+        
+        // 2. Calculate target position in front of gaze
+        const targetPos = camPos.clone().add(camDir.multiplyScalar(this.orb.targetDistance));
+        
+        // 3. Smoothly move orb (LERP)
+        this.orb.group.position.lerp(targetPos, 2.0 * deltaTime);
+        
+        // 4. Always face the user
+        this.orb.group.lookAt(camPos);
     }
 }
 
