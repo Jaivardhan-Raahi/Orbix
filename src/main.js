@@ -37,7 +37,7 @@ class App {
     }
 
     setupLighting() {
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         this.scene.add(ambientLight);
 
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -46,7 +46,7 @@ class App {
     }
 
     setupReticle() {
-        const geometry = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+        const geometry = new THREE.RingGeometry(0.1, 0.15, 32).rotateX(-Math.PI / 2);
         const material = new THREE.MeshBasicMaterial({ color: 0x00ffff });
         this.reticle = new THREE.Mesh(geometry, material);
         this.reticle.matrixAutoUpdate = false;
@@ -55,19 +55,18 @@ class App {
     }
 
     loadModels() {
-        console.log('[Assets] Starting to load models...');
+        console.log('[Assets] Loading optimized interior setup...');
         const dracoLoader = new DRACOLoader();
         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
         
         const loader = new GLTFLoader();
         loader.setDRACOLoader(dracoLoader);
 
-        // HELPER: Create an invisible hitbox for reliable interaction
         const createHitbox = (pos, size, type) => {
             const geo = new THREE.BoxGeometry(...size);
             const mat = new THREE.MeshBasicMaterial({ 
-                color: 0xff0000, 
-                visible: false // Change to true to see hitboxes for debugging
+                color: 0x00ff00, 
+                visible: false // Change to true to debug hitboxes
             });
             const hitbox = new THREE.Mesh(geo, mat);
             hitbox.position.set(...pos);
@@ -78,39 +77,40 @@ class App {
 
         // Load living room
         loader.load('/models/living_room.glb', (gltf) => {
-            console.log('[Assets] living_room.glb loaded.');
+            console.log('[Assets] room loaded.');
             const room = gltf.scene;
             room.position.set(0, 0, 0); 
-            room.userData.type = "room"; // Tagged so we can ignore it in raycasting
+            room.userData.type = "room";
             this.scene.add(room);
-        }, undefined, (e) => console.error('Could not load living_room.glb', e));
+        });
 
-        // 1. Laptop + Hitbox
+        // 1. Laptop (On the Table - Closer)
         loader.load('/models/laptop.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(0, 0.8, -1.5);
-            obj.scale.set(0.5, 0.5, 0.5);
+            obj.position.set(0, 0.8, -0.8);
+            obj.scale.set(0.4, 0.4, 0.4);
             this.scene.add(obj);
-            createHitbox([0, 0.85, -1.5], [0.6, 0.4, 0.5], "laptop");
-        }, undefined, (e) => console.error('Could not load laptop.glb', e));
+            // Large hitbox: easy to tap
+            createHitbox([0, 0.9, -0.8], [0.8, 0.5, 0.6], "laptop");
+        });
 
-        // 2. Desk Lamp + Hitbox
+        // 2. Desk Lamp (Small & Realistic)
         loader.load('/models/desk_lamp.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(0.6, 0.8, -1.6);
-            obj.scale.set(0.5, 0.5, 0.5);
+            obj.position.set(0.4, 0.8, -0.9);
+            obj.scale.set(0.12, 0.12, 0.12);
             this.scene.add(obj);
-            createHitbox([0.6, 1.0, -1.6], [0.3, 0.5, 0.3], "desk lamp");
-        }, undefined, (e) => console.error('Could not load desk_lamp.glb', e));
+            createHitbox([0.4, 1.0, -0.9], [0.4, 0.6, 0.4], "lamp");
+        });
 
-        // 3. Phone + Hitbox
+        // 3. Phone (Closer)
         loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(-0.6, 0.8, -1.2);
-            obj.scale.set(0.1, 0.1, 0.1);
+            obj.position.set(-0.4, 0.8, -0.7);
+            obj.scale.set(0.08, 0.08, 0.08);
             this.scene.add(obj);
-            createHitbox([-0.6, 0.85, -1.2], [0.2, 0.1, 0.3], "phone");
-        }, undefined, (e) => console.error('Could not load phone.glb', e));
+            createHitbox([-0.4, 0.9, -0.7], [0.3, 0.2, 0.4], "phone");
+        });
     }
 
     setupControls() {
@@ -119,7 +119,14 @@ class App {
         window.addEventListener('keyup', (e) => this.keys[e.code] = false);
 
         window.addEventListener('pointerdown', (e) => {
-            console.log("[Interaction] Pointer down event.");
+            console.log("[Interaction] Global tap detected.");
+            
+            // PROOF OF LIFE: This happens IMMEDIATELY on any tap
+            if (this.orb) {
+                this.orb.setColor(0xffffff);
+                setTimeout(() => this.orb.setColor(0x00ffff), 200);
+            }
+            
             this.onSelect(e);
         });
     }
@@ -131,12 +138,8 @@ class App {
     }
 
     onSelect(event) {
-        console.log("[Interaction] Selection event.");
+        console.log("[Interaction] Running raycast check...");
         
-        // Split second flash to confirm the tap event reached the function
-        this.orb.setColor(0xffffff);
-        setTimeout(() => this.orb.setColor(0x00ffff), 150);
-
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
@@ -148,7 +151,6 @@ class App {
 
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
         
-        // Find first hit that isn't the room or the orb itself
         const hit = intersects.find(i => {
             const type = i.object.userData.type;
             return type && type !== "room" && type !== "orb";
@@ -156,30 +158,26 @@ class App {
 
         if (hit) {
             const type = hit.object.userData.type;
-            console.log(`[Interaction] Hit hitbox for: ${type}`);
+            console.log(`[Interaction] HIT HITBOX: ${type}`);
             this.triggerAIReaction(type);
         } else {
-            console.log("[Interaction] Ray missed all object hitboxes.");
+            console.log("[Interaction] Ray missed all targets.");
         }
     }
 
     async triggerAIReaction(type) {
-        if (this.aiCooldown > 0) {
-            console.log(`[AI] Cooldown: ${this.aiCooldown.toFixed(1)}s remaining.`);
-            return;
-        }
+        if (this.aiCooldown > 0) return;
         this.aiCooldown = 8.0;
 
-        console.log(`[AI] Requesting reaction for: ${type}`);
+        console.log(`[AI] Processing reaction for: ${type}`);
         this.orb.setColor(0xffaa00); 
 
         try {
             const prompt = `User interacted with a ${type}. React as Orbix. One short sentence.`;
             const response = await chatWithAI(prompt);
             
-            console.log(`[AI] Proxy Response: "${response}"`);
+            console.log(`[AI] Response: "${response}"`);
             this.orb.setColor(0x00ffff);
-            
             speak(response);
             
             const screenPos = this.getOrbScreenPosition();
