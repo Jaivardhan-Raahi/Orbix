@@ -2,22 +2,34 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { XRManager } from './xr.js';
-import { Orb } from './orb.js';
+import { Orb, OrbState } from './orb.js';
 import { chatWithAI } from './ai.js';
-import { speak } from './voice.js';
+import { speak, interrupt, initVoice } from './voice.js';
 import { ChatUI } from './ui.js';
 
 class App {
     constructor() {
         this.scene = new THREE.Scene();
+        
+        // --- Phase 4: Camera Rig ---
+        this.cameraRig = new THREE.Group();
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        this.cameraRig.add(this.camera);
+        this.scene.add(this.cameraRig);
         
-        // Position user near the desk (assuming desk is near origin)
-        this.camera.position.set(0, 1.6, 1.2); 
+        // Initial Position
+        this.cameraRig.position.set(0, 0, 1.2); 
+        this.targetPosition = this.cameraRig.position.clone();
         
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        // --- Phase 5: Performance Optimized Renderer ---
+        this.renderer = new THREE.WebGLRenderer({ 
+            antialias: true, 
+            alpha: true,
+            powerPreference: "high-performance" 
+        });
+        this.renderer.shadowMap.enabled = false; // Disable shadows for performance
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(this.renderer.domElement);
 
         this.raycaster = new THREE.Raycaster();
@@ -27,13 +39,18 @@ class App {
         this.aiCooldown = 0;
         this.gazeTarget = null;
         this.gazeTimer = 0;
-        this.gazeThreshold = 2.0; 
+        this.gazeThreshold = 1.5; // Slightly faster trigger
         this.gazeTriggered = false;
+
+        // --- Proactive Interaction ---
+        this.idleTimer = 0;
+        this.idleThreshold = 20.0; // 20 seconds of no interaction triggers intervention
 
         this.setupLighting();
         this.setupGazeCursor();
         
-        this.xrManager = new XRManager(this.renderer, this.scene, this.camera, null);
+        // Initialize systems
+        this.xrManager = new XRManager(this.renderer, this.scene, this.camera, (e) => this.handleXRSelect(e));
         this.orb = new Orb(this.scene);
         
         this.loadModels();
@@ -45,10 +62,11 @@ class App {
     }
 
     setupLighting() {
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+        // Optimized Lighting: 1 Ambient + 1 Directional
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         this.scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
         dirLight.position.set(5, 10, 7);
         this.scene.add(dirLight);
     }
@@ -67,43 +85,60 @@ class App {
     }
 
     loadModels() {
-        console.log('[Assets] Loading consolidated scene.glb...');
         const dracoLoader = new DRACOLoader();
         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
         
         const loader = new GLTFLoader();
         loader.setDRACOLoader(dracoLoader);
 
-        // Load the custom scene
         loader.load('/models/scene.glb', (gltf) => {
             const model = gltf.scene;
-            model.position.set(0, 0, 0); 
             this.scene.add(model);
-
-            // Traverse and auto-tag objects by mesh name
             model.traverse((node) => {
                 if (node.isMesh) {
                     const name = node.name.toLowerCase();
-                    
-                    // Logic to detect meaningful objects in the consolidated GLB
                     if (name.includes('laptop')) node.userData.type = 'laptop';
                     else if (name.includes('phone') || name.includes('mobile')) node.userData.type = 'phone';
                     else if (name.includes('lamp')) node.userData.type = 'lamp';
                     else if (name.includes('desk') || name.includes('table')) node.userData.type = 'desk';
                     else if (name.includes('book')) node.userData.type = 'book';
-
-                    if (node.userData.type) {
-                        console.log(`[Assets] Auto-tagged mesh "${node.name}" as type: ${node.userData.type}`);
-                    }
+                    else if (name.includes('floor')) node.userData.type = 'floor';
                 }
             });
-            
-            console.log('[Assets] Custom scene loaded and auto-tagged.');
-        }, undefined, (e) => console.error('Could not load scene.glb', e));
+        });
     }
 
     setupControls() {
         window.addEventListener('resize', () => this.onWindowResize());
+        
+        // Keyboard Movement (Desktop)
+        window.addEventListener('keydown', (e) => {
+            const step = 0.5;
+            if (e.key === 'w') this.targetPosition.z -= step;
+            if (e.key === 's') this.targetPosition.z += step;
+            if (e.key === 'a') this.targetPosition.x -= step;
+            if (e.key === 'd') this.targetPosition.x += step;
+        });
+    }
+
+    handleXRSelect(event) {
+        initVoice(); // Interaction required to start AudioContext
+        
+        // Simple click-to-move for floor
+        const controller = event.target;
+        const tempMatrix = new THREE.Matrix4();
+        tempMatrix.identity().extractRotation(controller.matrixWorld);
+        
+        this.raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+        this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        const floorHit = intersects.find(i => i.object.userData.type === 'floor');
+        
+        if (floorHit) {
+            this.targetPosition.copy(floorHit.point);
+            this.targetPosition.y = 0; // Keep on ground
+        }
     }
 
     onWindowResize() {
@@ -128,12 +163,10 @@ class App {
 
         this.raycaster.set(camPos, camDir);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-        
-        const hit = intersects.find(i => i.object.userData.type && i.object.userData.type !== "orb");
+        const hit = intersects.find(i => i.object.userData.type && i.object.userData.type !== "orb" && i.object.userData.type !== "floor");
 
         if (hit) {
             const type = hit.object.userData.type;
-            
             if (this.gazeTarget === type) {
                 if (!this.gazeTriggered) {
                     this.gazeTimer += deltaTime;
@@ -160,29 +193,46 @@ class App {
         }
     }
 
+    /**
+     * Phase 2: Non-Blocking Pipeline
+     */
     async triggerAIReaction(type) {
         if (this.aiCooldown > 0) return;
-        this.aiCooldown = 6.0;
+        this.aiCooldown = 5.0;
 
-        this.orb.setColor(0xffaa00); 
+        interrupt(); // Stop previous voice/activity
+        this.orb.setState(OrbState.THINKING); 
+
         try {
             const prompt = `User is staring at the ${type}. React as Orbix. One short sentence.`;
-            const response = await chatWithAI(prompt);
             
-            this.orb.setColor(0x00ffff);
-            speak(response);
+            // 1. Fetch AI Response (Async)
+            const aiPromise = chatWithAI(prompt);
             
-            const screenPos = this.getOrbScreenPosition();
-            this.chatUI.show(response, screenPos.x, screenPos.y);
+            // 2. Immediate Visual State (Thinking) is already set
+            const response = await aiPromise;
+            
+            // 3. Immediate UI Feedback (Text)
+            this.orb.setState(OrbState.SPEAKING);
+            this.chatUI.show(response);
+            
+            // 4. Parallel Voice Playback (Non-blocking)
+            speak(response).then(() => {
+                if (this.orb.currentState === OrbState.SPEAKING) {
+                    this.orb.setState(OrbState.IDLE);
+                }
+            });
+
         } catch (err) {
-            this.orb.setColor(0x00ffff);
+            console.error("[Main] Interaction error:", err);
+            this.orb.setState(OrbState.IDLE);
         }
     }
 
     getOrbScreenPosition() {
         const pos = new THREE.Vector3();
         this.orb.group.getWorldPosition(pos);
-        pos.project(this.camera);
+        pos.project(this.xrManager.getCamera());
 
         return {
             x: (pos.x * 0.5 + 0.5) * window.innerWidth,
@@ -193,6 +243,16 @@ class App {
     render(time, frame) {
         const deltaTime = this.clock.getDelta();
         if (this.aiCooldown > 0) this.aiCooldown -= deltaTime;
+
+        // --- Proactive Interaction Logic ---
+        this.idleTimer += deltaTime;
+        if (this.idleTimer > this.idleThreshold) {
+            this.idleTimer = 0;
+            this.triggerProactiveComment();
+        }
+
+        // --- Smooth Movement Damping ---
+        this.cameraRig.position.lerp(this.targetPosition, 4 * deltaTime);
 
         this.updateGaze(deltaTime);
 
@@ -206,20 +266,46 @@ class App {
         activeCamera.getWorldDirection(camDir);
         camRight.crossVectors(camDir, camUp).normalize();
         
+        // Smooth Orb Following
         const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
             .add(camRight.multiplyScalar(0.8))
             .add(new THREE.Vector3(0, 0.2, 0));
 
-        const targetPos = camPos.clone().add(offset).add(this.orb.jitter);
-        
-        this.orb.group.position.lerp(targetPos, 2.0 * deltaTime);
+        const targetOrbPos = camPos.clone().add(offset).add(this.orb.jitter);
+        this.orb.group.position.lerp(targetOrbPos, 3.0 * deltaTime);
         this.orb.group.lookAt(camPos);
         this.orb.update(deltaTime);
 
-        const screenPos = this.getOrbScreenPosition();
-        this.chatUI.updatePosition(screenPos.x, screenPos.y);
+        // Update UI Position every frame (Translate3D)
+        if (this.chatUI.isVisible) {
+            const screenPos = this.getOrbScreenPosition();
+            this.chatUI.updatePosition(screenPos.x, screenPos.y);
+        }
 
         this.renderer.render(this.scene, this.camera);
+    }
+
+    async triggerProactiveComment() {
+        if (this.aiCooldown > 0) return;
+        this.aiCooldown = 10.0;
+        
+        interrupt();
+        this.orb.setState(OrbState.INTERVENE);
+        
+        try {
+            const prompt = "The user has been quiet. Say something to encourage them to stay focused on their studies. One short sentence.";
+            const response = await chatWithAI(prompt);
+            
+            this.orb.setState(OrbState.SPEAKING);
+            this.chatUI.show(response);
+            speak(response).then(() => {
+                if (this.orb.currentState === OrbState.SPEAKING) {
+                    this.orb.setState(OrbState.IDLE);
+                }
+            });
+        } catch (err) {
+            this.orb.setState(OrbState.IDLE);
+        }
     }
 }
 
