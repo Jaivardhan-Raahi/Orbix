@@ -20,12 +20,18 @@ class App {
 
         this.raycaster = new THREE.Raycaster();
         this.chatUI = new ChatUI();
-        this.aiCooldown = 0;
         
+        // Gaze State
+        this.aiCooldown = 0;
+        this.gazeTarget = null;
+        this.gazeTimer = 0;
+        this.gazeThreshold = 2.0; // 2 seconds to trigger
+        this.gazeTriggered = false;
+
         this.setupLighting();
         this.setupGazeCursor();
         
-        this.xrManager = new XRManager(this.renderer, this.scene, this.camera, (e) => this.onSelect(e));
+        this.xrManager = new XRManager(this.renderer, this.scene, this.camera, null);
         this.orb = new Orb(this.scene);
         
         this.loadModels();
@@ -40,19 +46,18 @@ class App {
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         this.scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
         dirLight.position.set(5, 10, 7);
         this.scene.add(dirLight);
     }
 
     setupGazeCursor() {
-        // A small 3D ring that follows the camera's center of gaze
         const geometry = new THREE.RingGeometry(0.015, 0.02, 32);
         const material = new THREE.MeshBasicMaterial({ 
             color: 0xffffff, 
             transparent: true, 
             opacity: 0.8,
-            depthTest: false // Ensure it's always visible on top
+            depthTest: false 
         });
         this.gazeCursor = new THREE.Mesh(geometry, material);
         this.gazeCursor.renderOrder = 999;
@@ -60,7 +65,7 @@ class App {
     }
 
     loadModels() {
-        console.log('[Assets] Loading optimized interior setup...');
+        console.log('[Assets] Loading decoupled interior setup...');
         const dracoLoader = new DRACOLoader();
         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
         
@@ -69,10 +74,7 @@ class App {
 
         const createHitbox = (pos, size, type) => {
             const geo = new THREE.BoxGeometry(...size);
-            const mat = new THREE.MeshBasicMaterial({ 
-                color: 0x00ff00, 
-                visible: false // Change to true to debug hitboxes
-            });
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, visible: false });
             const hitbox = new THREE.Mesh(geo, mat);
             hitbox.position.set(...pos);
             hitbox.userData.type = type;
@@ -80,7 +82,6 @@ class App {
             return hitbox;
         };
 
-        // Load living room
         loader.load('/models/living_room.glb', (gltf) => {
             const room = gltf.scene;
             room.position.set(0, 0, 0); 
@@ -88,47 +89,36 @@ class App {
             this.scene.add(room);
         });
 
-        // 1. Laptop (Closer, distinct hitbox)
+        // 1. Laptop (Center-Left Table)
         loader.load('/models/laptop.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(0.1, 0.8, -0.8);
+            obj.position.set(-0.8, 0.8, -1.2);
             obj.scale.set(0.4, 0.4, 0.4);
             this.scene.add(obj);
-            createHitbox([0.1, 0.9, -0.8], [0.6, 0.4, 0.5], "laptop");
+            createHitbox([-0.8, 0.9, -1.2], [0.6, 0.3, 0.5], "laptop");
         });
 
-        // 2. Desk Lamp (Small)
+        // 2. Desk Lamp (Far Right Corner)
         loader.load('/models/desk_lamp.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(0.5, 0.8, -0.9);
+            obj.position.set(1.2, 0.8, -1.0);
             obj.scale.set(0.12, 0.12, 0.12);
             this.scene.add(obj);
-            createHitbox([0.5, 1.0, -0.9], [0.3, 0.5, 0.3], "lamp");
+            createHitbox([1.2, 1.0, -1.0], [0.3, 0.5, 0.3], "lamp");
         });
 
-        // 3. Phone (Scaled UP, moved to avoid laptop hitbox)
+        // 3. Phone (Near Center Table - Slightly Right)
         loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(-0.5, 0.8, -0.8);
-            obj.scale.set(0.2, 0.2, 0.2); // Increased scale
+            obj.position.set(0.2, 0.8, -0.6);
+            obj.scale.set(0.25, 0.25, 0.25);
             this.scene.add(obj);
-            createHitbox([-0.5, 0.9, -0.8], [0.4, 0.2, 0.4], "phone");
+            createHitbox([0.2, 0.85, -0.6], [0.3, 0.15, 0.4], "phone");
         });
     }
 
     setupControls() {
         window.addEventListener('resize', () => this.onWindowResize());
-        window.addEventListener('keydown', (e) => this.keys[e.code] = true);
-        window.addEventListener('keyup', (e) => this.keys[e.code] = false);
-
-        window.addEventListener('pointerdown', (e) => {
-            console.log("[Interaction] Global tap detected.");
-            if (this.orb) {
-                this.orb.setColor(0xffffff);
-                setTimeout(() => this.orb.setColor(0x00ffff), 200);
-            }
-            this.onSelect(e);
-        });
     }
 
     onWindowResize() {
@@ -137,14 +127,22 @@ class App {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    onSelect(event) {
+    updateGaze(deltaTime) {
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
         
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
-        
+
+        // Position Gaze Cursor
+        if (this.gazeCursor) {
+            const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(1.0));
+            this.gazeCursor.position.copy(cursorPos);
+            this.gazeCursor.lookAt(camPos);
+        }
+
+        // Raycast for stare detection
         this.raycaster.set(camPos, camDir);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
         
@@ -155,25 +153,57 @@ class App {
 
         if (hit) {
             const type = hit.object.userData.type;
-            console.log(`[Interaction] Tapped on: ${type}`);
-            this.triggerAIReaction(type);
+            
+            // If gazing at same object
+            if (this.gazeTarget === type) {
+                if (!this.gazeTriggered) {
+                    this.gazeTimer += deltaTime;
+                    
+                    // Visual feedback: Scale cursor based on progress
+                    const scale = 1.0 + (this.gazeTimer / this.gazeThreshold) * 2.0;
+                    this.gazeCursor.scale.set(scale, scale, scale);
+                    this.gazeCursor.material.color.set(0x00ffff);
+
+                    if (this.gazeTimer >= this.gazeThreshold) {
+                        console.log(`[Gaze] Stare successful: ${type}`);
+                        this.triggerAIReaction(type);
+                        this.gazeTriggered = true;
+                    }
+                }
+            } else {
+                // New target
+                this.gazeTarget = type;
+                this.gazeTimer = 0;
+                this.gazeTriggered = false;
+            }
+        } else {
+            // Looking at nothing/room
+            this.gazeTarget = null;
+            this.gazeTimer = 0;
+            this.gazeTriggered = false;
+            this.gazeCursor.scale.set(1, 1, 1);
+            this.gazeCursor.material.color.set(0xffffff);
         }
     }
 
     async triggerAIReaction(type) {
         if (this.aiCooldown > 0) return;
-        this.aiCooldown = 8.0;
+        this.aiCooldown = 6.0;
 
+        console.log(`[AI] Reacting to stare on: ${type}`);
         this.orb.setColor(0xffaa00); 
+
         try {
-            const prompt = `User interacted with a ${type}. React as Orbix. One short sentence.`;
+            const prompt = `User is staring at the ${type}. React as Orbix. One short sentence.`;
             const response = await chatWithAI(prompt);
+            
             this.orb.setColor(0x00ffff);
             speak(response);
             
             const screenPos = this.getOrbScreenPosition();
             this.chatUI.show(response, screenPos.x, screenPos.y);
         } catch (err) {
+            console.error("[AI] Gaze reaction failed:", err);
             this.orb.setColor(0x00ffff);
         }
     }
@@ -193,37 +223,17 @@ class App {
         const deltaTime = this.clock.getDelta();
         if (this.aiCooldown > 0) this.aiCooldown -= deltaTime;
 
+        this.updateGaze(deltaTime);
+
+        // Update Orb (Shoulder Follow)
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
+        const camRight = new THREE.Vector3();
+        const camUp = new THREE.Vector3(0, 1, 0);
         
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
-
-        // Update Gaze Cursor position
-        if (this.gazeCursor) {
-            const cursorDist = 1.0; // Distance in front of camera
-            const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(cursorDist));
-            this.gazeCursor.position.copy(cursorPos);
-            this.gazeCursor.lookAt(camPos);
-            
-            // Check for hover
-            this.raycaster.set(camPos, camDir);
-            const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-            const hover = intersects.find(i => i.object.userData.type && i.object.userData.type !== "room");
-            
-            if (hover) {
-                this.gazeCursor.scale.set(2, 2, 2);
-                this.gazeCursor.material.color.set(0x00ffff);
-            } else {
-                this.gazeCursor.scale.set(1, 1, 1);
-                this.gazeCursor.material.color.set(0xffffff);
-            }
-        }
-
-        // Update Orb (Shoulder Follow)
-        const camRight = new THREE.Vector3();
-        const camUp = new THREE.Vector3(0, 1, 0);
         camRight.crossVectors(camDir, camUp).normalize();
         
         const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
