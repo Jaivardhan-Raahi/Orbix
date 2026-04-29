@@ -11,6 +11,7 @@ class App {
     constructor() {
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        this.camera.position.set(0, 1.6, 0); 
         
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -65,8 +66,8 @@ class App {
         loader.load('/models/living_room.glb', (gltf) => {
             console.log('[Assets] living_room.glb loaded.');
             const room = gltf.scene;
-            // Align floor with user height
-            room.position.set(0, -1.6, 0); 
+            // Place room floor at y=0
+            room.position.set(0, 0, 0); 
             this.scene.add(room);
         }, undefined, (e) => console.error('Could not load living_room.glb', e));
 
@@ -74,7 +75,8 @@ class App {
         loader.load('/models/laptop.glb', (gltf) => {
             console.log('[Assets] laptop.glb loaded.');
             const laptop = gltf.scene;
-            laptop.position.set(0, -0.6, -1.5);
+            // Place on table: assuming table height is ~0.8m
+            laptop.position.set(0, 0.8, -1.5);
             laptop.scale.set(0.5, 0.5, 0.5);
             laptop.userData.type = "laptop";
             this.scene.add(laptop);
@@ -83,7 +85,7 @@ class App {
         // Load desk lamp
         loader.load('/models/desk_lamp.glb', (gltf) => {
             const lamp = gltf.scene;
-            lamp.position.set(0.6, -0.6, -1.6);
+            lamp.position.set(0.6, 0.8, -1.6);
             lamp.scale.set(0.5, 0.5, 0.5);
             lamp.userData.type = "desk lamp";
             this.scene.add(lamp);
@@ -92,7 +94,7 @@ class App {
         // Load phone
         loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
             const phone = gltf.scene;
-            phone.position.set(-0.6, -0.6, -1.2);
+            phone.position.set(-0.6, 0.8, -1.2);
             phone.scale.set(0.1, 0.1, 0.1);
             phone.userData.type = "phone";
             this.scene.add(phone);
