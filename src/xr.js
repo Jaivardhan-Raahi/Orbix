@@ -18,16 +18,17 @@ export class XRManager {
         const startBtn = document.getElementById('start-ar-btn');
 
         if ('xr' in navigator) {
-            console.log('WebXR: Checking immersive-ar support...');
-            const supported = await navigator.xr.isSessionSupported('immersive-ar');
+            console.log('WebXR: Checking immersive-vr support...');
+            const supported = await navigator.xr.isSessionSupported('immersive-vr');
             
             if (supported) {
-                startBtn.addEventListener('click', () => this.startAR());
+                startBtn.textContent = "Start VR Session";
+                startBtn.addEventListener('click', () => this.startVR());
             } else {
-                startBtn.textContent = "AR Not Supported";
+                startBtn.textContent = "VR Not Supported";
                 startBtn.style.background = "#555";
                 startBtn.style.cursor = "not-allowed";
-                console.warn('WebXR: immersive-ar NOT supported.');
+                console.warn('WebXR: immersive-vr NOT supported.');
             }
         } else {
             startBtn.textContent = "WebXR Not Available";
@@ -36,24 +37,21 @@ export class XRManager {
         }
     }
 
-    async startAR() {
+    async startVR() {
         try {
-            console.log('WebXR: Requesting immersive-ar session...');
+            console.log('WebXR: Requesting immersive-vr session...');
             
-            // We move hit-test to optional features to see if the session can start without it.
-            // Some devices might fail if hit-test is required but not perfectly configured.
             const sessionOptions = {
-                optionalFeatures: ['hit-test', 'dom-overlay'],
-                domOverlay: { root: document.body }
+                optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'layers']
             };
 
-            const session = await navigator.xr.requestSession('immersive-ar', sessionOptions);
+            const session = await navigator.xr.requestSession('immersive-vr', sessionOptions);
             
-            console.log('WebXR: Session granted.');
+            console.log('WebXR: VR Session granted.');
             this.renderer.xr.setSession(session);
             this.session = session;
             
-            // Setup select event
+            // Setup select event (clicks/triggers)
             session.addEventListener('select', (e) => {
                 if (this.onSelect) this.onSelect(e);
             });
@@ -67,19 +65,16 @@ export class XRManager {
             }
 
             session.addEventListener('end', () => {
-                console.log('WebXR: Session ended.');
+                console.log('WebXR: VR Session ended.');
                 document.getElementById('landing-ui').style.display = 'flex';
-                this.hitTestSourceRequested = false;
-                this.hitTestSource = null;
                 this.session = null;
             });
 
         } catch (error) {
             console.error('WebXR: Failed to start session:', error);
-            // More detailed error message for the user
-            let msg = 'Could not start AR session.';
-            if (error.name === 'NotSupportedError') msg += '\nYour device/browser might not support AR.';
-            else if (error.name === 'SecurityError') msg += '\nAR requires a secure HTTPS connection.';
+            let msg = 'Could not start VR session.';
+            if (error.name === 'NotSupportedError') msg += '\nYour device/browser might not support VR.';
+            else if (error.name === 'SecurityError') msg += '\nVR requires a secure HTTPS connection.';
             else msg += `\nError: ${error.message}`;
             
             alert(msg);
