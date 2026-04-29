@@ -2,6 +2,9 @@ import { UniversalEdgeTTS } from 'edge-tts-universal';
 
 export const runtime = "nodejs";
 
+/**
+ * Robust Backend TTS endpoint
+ */
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
@@ -13,32 +16,42 @@ export default async function handler(req, res) {
     console.log(`[TTS] Generating: "${text.substring(0, 30)}..."`);
 
     try {
-        // UniversalEdgeTTS might need a timeout or specific configuration for serverless
         const tts = new UniversalEdgeTTS(text, 'en-US-AriaNeural');
         
-        // Use a race to prevent hanging the serverless function
         const audioPromise = tts.synthesize();
         const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("TTS synthesis timed out after 8s")), 8000)
+            setTimeout(() => reject(new Error("TTS synthesis timed out after 10s")), 10000)
         );
 
-        const audioBuffer = await Promise.race([audioPromise, timeoutPromise]);
+        const result = await Promise.race([audioPromise, timeoutPromise]);
 
-        if (!audioBuffer || audioBuffer.length === 0) {
-            throw new Error("TTS generated no data");
+        if (!result) {
+            throw new Error("TTS generated null or undefined result");
         }
 
+        // Determine length safely (Uint8Array, Buffer, or ArrayBuffer)
+        const bufferLength = result.length ?? result.byteLength ?? 0;
+
+        if (bufferLength === 0) {
+            throw new Error("TTS generated an empty buffer");
+        }
+
+        console.log(`[TTS] Success: ${bufferLength} bytes, Type: ${typeof result}`);
+
+        // Ensure we send a Node.js Buffer
+        const finalBuffer = Buffer.isBuffer(result) ? result : Buffer.from(result);
+
         res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Content-Length', audioBuffer.length);
-        res.status(200).send(audioBuffer);
+        res.setHeader('Content-Length', finalBuffer.length);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        
+        return res.status(200).send(finalBuffer);
 
     } catch (error) {
-        console.error("[TTS] Error:", error.message);
-        // Return the actual error to the frontend so the mobile console can see it
+        console.error("[TTS] Critical Failure:", error.message);
         res.status(500).json({ 
             error: "TTS failed", 
-            message: error.message,
-            stack: error.stack?.substring(0, 200)
+            message: error.message
         });
     }
 }
