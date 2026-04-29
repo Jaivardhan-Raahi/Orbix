@@ -149,16 +149,35 @@ class App {
         if (this.aiCooldown > 0) return;
         this.aiCooldown = 8.0;
 
+        console.log(`[AI] Reacting to: ${type}`);
+        
+        // VISUAL FEEDBACK START
+        this.orb.setColor(0xffaa00); 
+
+        // USER GESTURE UNLOCK
+        // We speak a tiny silent space to "hold" the user gesture 
+        // through the async fetch call.
+        const silentUtterance = new SpeechSynthesisUtterance(" ");
+        window.speechSynthesis.speak(silentUtterance);
+
         const prompt = `User interacted with a ${type}. React to this as Orbix (strict blue orb AI companion). One short sentence.`;
         
-        this.orb.setColor(0xffaa00); 
-        const response = await chatWithAI(prompt);
-        this.orb.setColor(0x00ffff);
-        
-        speak(response);
-        
-        const screenPos = this.getOrbScreenPosition();
-        this.chatUI.show(response, screenPos.x, screenPos.y);
+        try {
+            const response = await chatWithAI(prompt);
+            console.log(`[AI] Response: ${response}`);
+            
+            // VISUAL FEEDBACK END
+            this.orb.setColor(0x00ffff);
+            
+            speak(response);
+            
+            const screenPos = this.getOrbScreenPosition();
+            this.chatUI.show(response, screenPos.x, screenPos.y);
+        } catch (err) {
+            console.error("[AI] Error:", err);
+            this.orb.setColor(0x00ffff);
+            speak("My connection is unstable.");
+        }
     }
 
     getOrbScreenPosition() {

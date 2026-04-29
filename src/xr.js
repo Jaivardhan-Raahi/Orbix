@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { initVoice } from './voice.js';
 
 export class XRManager {
     constructor(renderer, scene, camera, onSelect) {
@@ -23,7 +24,10 @@ export class XRManager {
             
             if (supported) {
                 startBtn.textContent = "Start VR Session";
-                startBtn.addEventListener('click', () => this.startVR());
+                startBtn.addEventListener('click', () => {
+                    initVoice();
+                    this.startVR();
+                });
             } else {
                 startBtn.textContent = "VR Not Supported";
                 startBtn.style.background = "#555";
