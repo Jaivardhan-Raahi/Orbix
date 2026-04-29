@@ -17,28 +17,42 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Text is required' });
     }
 
-    console.log(`[TTS] Generating audio for: "${text.substring(0, 30)}..."`);
+    console.log(`[Edge-TTS] Generating audio for: "${text.substring(0, 30)}..."`);
 
     try {
-        // Correct usage for edge-tts-universal:
-        // New instance requires (text, voice)
         const tts = new UniversalEdgeTTS(text, 'en-US-AriaNeural');
         
-        // Synthesize returns the full audio buffer
+        // synthesize() returns a Buffer in Node.js
         const audioBuffer = await tts.synthesize();
 
-        if (!audioBuffer || audioBuffer.length === 0) {
-            throw new Error("Empty audio buffer generated");
+        if (!audioBuffer) {
+            console.error("[Edge-TTS] Result was null or undefined");
+            return res.status(500).json({ error: "TTS generated no data" });
         }
 
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24h
-        res.status(200).send(audioBuffer);
+        const bufferLength = audioBuffer.length || audioBuffer.byteLength || 0;
+        
+        if (bufferLength === 0) {
+            console.error("[Edge-TTS] Generated an empty buffer");
+            return res.status(500).json({ error: "TTS generated empty audio" });
+        }
 
-        console.log(`[TTS] Success: ${audioBuffer.length} bytes served.`);
+        console.log(`[Edge-TTS] Successfully generated ${bufferLength} bytes.`);
+
+        // Ensure we are sending the buffer correctly
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Length', bufferLength);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        
+        // Use send(Buffer) for Node.js environments
+        return res.status(200).send(audioBuffer);
 
     } catch (error) {
-        console.error("[TTS] Failure:", error.message);
-        res.status(500).json({ error: "TTS failed", details: error.message });
+        console.error("[Edge-TTS] Critical Failure:", error.message);
+        return res.status(500).json({ 
+            error: "TTS failed", 
+            details: error.message,
+            stack: error.stack 
+        });
     }
 }
