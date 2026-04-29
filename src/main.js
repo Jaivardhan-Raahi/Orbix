@@ -143,19 +143,25 @@ class App {
             console.log("[Assets] scene.glb loaded.");
 
             model.traverse((node) => {
-                if (node.isMesh) {
-                    const name = node.name.toLowerCase();
-                    // Tag meaningful objects
-                    if (name.includes('laptop')) node.userData.type = 'laptop';
-                    else if (name.includes('phone') || name.includes('mobile')) node.userData.type = 'phone';
-                    else if (name.includes('lamp')) node.userData.type = 'lamp';
-                    else if (name.includes('desk') || name.includes('table')) node.userData.type = 'desk';
-                    else if (name.includes('book')) node.userData.type = 'book';
-                    else if (name.includes('floor')) node.userData.type = 'floor';
-                    
-                    if (node.userData.type) {
-                        console.log(`[Assets] Tagged ${node.name} as ${node.userData.type}`);
-                    }
+                const name = node.name.toLowerCase();
+                let type = null;
+                
+                if (name.includes('laptop')) type = 'laptop';
+                else if (name.includes('phone') || name.includes('mobile')) type = 'phone';
+                else if (name.includes('lamp')) type = 'lamp';
+                else if (name.includes('desk') || name.includes('table')) type = 'desk';
+                else if (name.includes('book')) type = 'book';
+                else if (name.includes('floor')) type = 'floor';
+                
+                if (type) {
+                    node.userData.type = type;
+                    // Propagate to all child meshes since the group might hold the name but raycaster hits meshes
+                    node.traverse((child) => {
+                        if (child.isMesh) {
+                            child.userData.type = type;
+                        }
+                    });
+                    console.log(`[Assets] Tagged ${node.name} and its meshes as ${type}`);
                 }
             });
         });
