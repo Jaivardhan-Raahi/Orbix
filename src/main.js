@@ -9,6 +9,9 @@ import { ChatUI } from './ui.js';
 
 class App {
     constructor() {
+        this.initMobileConsole();
+        console.log("[App] Starting Orbix...");
+        
         this.scene = new THREE.Scene();
         
         // --- Phase 4: Camera Rig ---
@@ -106,24 +109,68 @@ class App {
                     else if (name.includes('book')) node.userData.type = 'book';
                     else if (name.includes('floor')) node.userData.type = 'floor';
                 }
-            });
-        });
-    }
+            class App {
+                constructor() {
+                    this.initMobileConsole();
+            ...
+                setupControls() {
+                    window.addEventListener('resize', () => this.onWindowResize());
 
-    setupControls() {
-        window.addEventListener('resize', () => this.onWindowResize());
-        
-        // Keyboard Movement (Desktop)
-        window.addEventListener('keydown', (e) => {
-            const step = 0.5;
-            if (e.key === 'w') this.targetPosition.z -= step;
-            if (e.key === 's') this.targetPosition.z += step;
-            if (e.key === 'a') this.targetPosition.x -= step;
-            if (e.key === 'd') this.targetPosition.x += step;
-        });
-    }
+                    // Keyboard Movement (Desktop)
+                    window.addEventListener('keydown', (e) => {
+                        const step = 0.5;
+                        if (e.key === 'w') this.targetPosition.z -= step;
+                        if (e.key === 's') this.targetPosition.z += step;
+                        if (e.key === 'a') this.targetPosition.x -= step;
+                        if (e.key === 'd') this.targetPosition.x += step;
+                    });
+                }
 
-    handleXRSelect(event) {
+                initMobileConsole() {
+                    const consoleDiv = document.getElementById('debug-console');
+                    if (!consoleDiv) return;
+
+                    consoleDiv.style.display = 'block';
+
+                    const originalLog = console.log;
+                    const originalError = console.error;
+
+                    console.log = (...args) => {
+                        originalLog.apply(console, args);
+                        this.appendToConsole(args, '#00ff00');
+                    };
+
+                    console.error = (...args) => {
+                        originalError.apply(console, args);
+                        this.appendToConsole(args, '#ff4444');
+                    };
+
+                    window.onerror = (msg, url, line) => {
+                        this.appendToConsole([`Error: ${msg} at ${line}`], '#ff0000');
+                    };
+                }
+
+                appendToConsole(args, color) {
+                    const consoleDiv = document.getElementById('debug-console');
+                    if (!consoleDiv) return;
+
+                    const p = document.createElement('div');
+                    p.style.color = color;
+                    p.style.marginBottom = '2px';
+                    p.textContent = args.map(arg => 
+                        typeof arg === 'object' ? JSON.stringify(arg) : arg
+                    ).join(' ');
+
+                    consoleDiv.appendChild(p);
+                    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+
+                    // Keep only last 50 logs
+                    if (consoleDiv.childNodes.length > 50) {
+                        consoleDiv.removeChild(consoleDiv.firstChild);
+                    }
+                }
+
+                handleXRSelect(event) {
         initVoice(); // Interaction required to start AudioContext
         
         // Simple click-to-move for floor
