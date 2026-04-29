@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { XRManager } from './xr.js';
+import { Orb } from './orb.js';
 import { chatWithAI } from './ai.js';
 import { speak } from './voice.js';
 import { ChatUI } from './ui.js';
@@ -19,13 +20,12 @@ class App {
         this.raycaster = new THREE.Raycaster();
         this.chatUI = new ChatUI();
         this.aiCooldown = 0;
-        this.aiModel = null;
-        this.aiJitterTime = 0;
         
         this.setupLighting();
         this.setupReticle();
         
         this.xrManager = new XRManager(this.renderer, this.scene, this.camera, (e) => this.onSelect(e));
+        this.orb = new Orb(this.scene);
         
         this.loadModels();
 
@@ -36,7 +36,7 @@ class App {
     }
 
     setupLighting() {
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
         this.scene.add(ambientLight);
 
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -65,6 +65,7 @@ class App {
         loader.load('/models/living_room.glb', (gltf) => {
             console.log('[Assets] living_room.glb loaded.');
             const room = gltf.scene;
+            // Align floor with user height
             room.position.set(0, -1.6, 0); 
             this.scene.add(room);
         }, undefined, (e) => console.error('Could not load living_room.glb', e));
@@ -73,7 +74,7 @@ class App {
         loader.load('/models/laptop.glb', (gltf) => {
             console.log('[Assets] laptop.glb loaded.');
             const laptop = gltf.scene;
-            laptop.position.set(0, -0.5, -2);
+            laptop.position.set(0, -0.6, -1.5);
             laptop.scale.set(0.5, 0.5, 0.5);
             laptop.userData.type = "laptop";
             this.scene.add(laptop);
@@ -82,7 +83,7 @@ class App {
         // Load desk lamp
         loader.load('/models/desk_lamp.glb', (gltf) => {
             const lamp = gltf.scene;
-            lamp.position.set(0.5, -0.5, -2.2);
+            lamp.position.set(0.6, -0.6, -1.6);
             lamp.scale.set(0.5, 0.5, 0.5);
             lamp.userData.type = "desk lamp";
             this.scene.add(lamp);
@@ -91,35 +92,11 @@ class App {
         // Load phone
         loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
             const phone = gltf.scene;
-            phone.position.set(-0.5, -0.5, -1.8);
+            phone.position.set(-0.6, -0.6, -1.2);
             phone.scale.set(0.1, 0.1, 0.1);
             phone.userData.type = "phone";
             this.scene.add(phone);
         }, undefined, (e) => console.warn('Could not load phone.glb', e));
-
-        this.setupAIPlaceholder();
-    }
-
-    setupAIPlaceholder() {
-        // AI Character placeholder since we don't have a humanoid GLB
-        this.aiModel = new THREE.Group();
-        
-        // Head
-        const headGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-        const headMat = new THREE.MeshStandardMaterial({ color: 0x00ffff });
-        const head = new THREE.Mesh(headGeo, headMat);
-        head.position.y = 1.6;
-        this.aiModel.add(head);
-
-        // Body
-        const bodyGeo = new THREE.CylinderGeometry(0.15, 0.2, 0.6);
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcccccc });
-        const body = new THREE.Mesh(bodyGeo, bodyMat);
-        body.position.y = 1.1;
-        this.aiModel.add(body);
-
-        this.aiModel.position.set(1, 0, -2);
-        this.scene.add(this.aiModel);
     }
 
     onWindowResize() {
@@ -129,12 +106,6 @@ class App {
     }
 
     onSelect(event) {
-        if (this.reticle.visible) {
-            // Can use reticle position for something, e.g., moving AI
-            // this.aiModel.position.setFromMatrixPosition(this.reticle.matrix);
-        }
-
-        // Tap detection via raycaster
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
@@ -166,7 +137,9 @@ class App {
             }
 
             console.log(`[Interaction] User tapped on: ${type}`);
-            this.triggerAIReaction(type);
+            if (type !== 'orb') {
+                this.triggerAIReaction(type);
+            }
         }
     }
 
@@ -174,20 +147,21 @@ class App {
         if (this.aiCooldown > 0) return;
         this.aiCooldown = 8.0;
 
-        const prompt = `User tapped on a ${type}. React to this as Orbix (strict AI companion). One short sentence.`;
+        const prompt = `User interacted with a ${type}. React to this as Orbix (strict blue orb AI companion). One short sentence.`;
         
+        this.orb.setColor(0xffaa00); 
         const response = await chatWithAI(prompt);
+        this.orb.setColor(0x00ffff);
+        
         speak(response);
         
-        const screenPos = this.getAIScreenPosition();
+        const screenPos = this.getOrbScreenPosition();
         this.chatUI.show(response, screenPos.x, screenPos.y);
     }
 
-    getAIScreenPosition() {
+    getOrbScreenPosition() {
         const pos = new THREE.Vector3();
-        if (this.aiModel) {
-            this.aiModel.children[0].getWorldPosition(pos); // Head position
-        }
+        this.orb.group.getWorldPosition(pos);
         pos.project(this.camera);
 
         return {
@@ -212,42 +186,29 @@ class App {
             }
         }
 
-        // Update AI Character (Follow & Idle animation)
-        if (this.aiModel) {
-            const activeCamera = this.xrManager.getCamera();
-            const camPos = new THREE.Vector3();
-            activeCamera.getWorldPosition(camPos);
+        // Update Orb (Shoulder Follow)
+        const activeCamera = this.xrManager.getCamera();
+        const camPos = new THREE.Vector3();
+        const camDir = new THREE.Vector3();
+        const camRight = new THREE.Vector3();
+        const camUp = new THREE.Vector3(0, 1, 0);
+        
+        activeCamera.getWorldPosition(camPos);
+        activeCamera.getWorldDirection(camDir);
+        camRight.crossVectors(camDir, camUp).normalize();
+        
+        // Positioning inside the room: slightly forward, right, and at eye level
+        const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
+            .add(camRight.multiplyScalar(0.8))
+            .add(new THREE.Vector3(0, 0.2, 0)); // Slightly above eye level
 
-            // Look at camera (ignore Y axis for natural turning)
-            const targetPos = new THREE.Vector3(camPos.x, this.aiModel.position.y, camPos.z);
-            this.aiModel.lookAt(targetPos);
+        const targetPos = camPos.clone().add(offset).add(this.orb.jitter);
+        
+        this.orb.group.position.lerp(targetPos, 2.0 * deltaTime);
+        this.orb.group.lookAt(camPos);
+        this.orb.update(deltaTime);
 
-            // Subtle follow (Lerp towards a point slightly right and front of user)
-            const camDir = new THREE.Vector3();
-            activeCamera.getWorldDirection(camDir);
-            camDir.y = 0;
-            camDir.normalize();
-
-            const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0, 1, 0)).normalize();
-            
-            // AI target position: 2m forward, 1m right
-            // We use clone() to avoid modifying camDir
-            const aiTarget = camPos.clone()
-                .add(camDir.clone().multiplyScalar(2))
-                .add(right.clone().multiplyScalar(1));
-            
-            // Preserve Y
-            aiTarget.y = 0;
-
-            this.aiModel.position.lerp(aiTarget, 0.5 * deltaTime);
-
-            // Idle animation (breathing)
-            this.aiJitterTime += deltaTime;
-            this.aiModel.children[0].position.y = 1.6 + Math.sin(this.aiJitterTime * 2) * 0.02; // Head bob
-            this.aiModel.children[1].scale.y = 1 + Math.sin(this.aiJitterTime * 2) * 0.05; // Body breathe
-        }
-
-        const screenPos = this.getAIScreenPosition();
+        const screenPos = this.getOrbScreenPosition();
         this.chatUI.updatePosition(screenPos.x, screenPos.y);
 
         this.renderer.render(this.scene, this.camera);
