@@ -29,12 +29,15 @@ export default async function handler(req, res) {
 
     // 1. Caching Layer
     if (cache.has(message)) {
-        console.log(`[Chat] Serving cached response for: "${message.substring(0, 20)}..."`);
+        console.log(`[Chat] Serving cached response for: "${message.substring(0, 30)}..."`);
         return res.status(200).json({ response: cache.get(message) });
     }
 
     const API_KEY = process.env.OPENROUTER_API_KEY;
-    if (!API_KEY) return res.status(200).json({ response: getOfflineFallback(message) });
+    if (!API_KEY) {
+        console.warn("[Chat] No API key found. Using fallback.");
+        return res.status(200).json({ response: getOfflineFallback(message) });
+    }
 
     // 2. Retry Logic with Backoff
     let attempts = 0;
@@ -43,6 +46,7 @@ export default async function handler(req, res) {
 
     while (attempts <= maxAttempts) {
         try {
+            console.log(`[Chat] Requesting AI completion (Attempt ${attempts + 1})...`);
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: {

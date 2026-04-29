@@ -158,7 +158,6 @@ class App {
         activeCamera.getWorldDirection(camDir);
 
         if (this.gazeCursor) {
-            // Place reticle 1.5m in front of camera
             const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(1.5));
             this.gazeCursor.position.copy(cursorPos);
             this.gazeCursor.lookAt(camPos);
@@ -166,6 +165,8 @@ class App {
 
         this.raycaster.set(camPos, camDir);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        
+        // Find the first meaningful object that isn't the floor or the orb
         const hit = intersects.find(i => i.object.userData.type && i.object.userData.type !== "orb" && i.object.userData.type !== "floor");
 
         if (hit) {
@@ -173,21 +174,26 @@ class App {
             if (this.gazeTarget === type) {
                 if (!this.gazeTriggered) {
                     this.gazeTimer += deltaTime;
+                    console.log(`[Gaze] Focusing on ${type}: ${this.gazeTimer.toFixed(2)}s / ${this.gazeThreshold}s`);
+                    
                     const scale = 1.0 + (this.gazeTimer / this.gazeThreshold) * 2.0;
                     this.gazeCursor.scale.set(scale, scale, scale);
                     this.gazeCursor.material.color.set(0x00ffff);
 
                     if (this.gazeTimer >= this.gazeThreshold) {
+                        console.log(`[Gaze] Triggering reaction for ${type}`);
                         this.triggerAIReaction(type);
                         this.gazeTriggered = true;
                     }
                 }
             } else {
+                console.log(`[Gaze] Target changed to: ${type}`);
                 this.gazeTarget = type;
                 this.gazeTimer = 0;
                 this.gazeTriggered = false;
             }
         } else {
+            if (this.gazeTarget) console.log(`[Gaze] Lost focus on ${this.gazeTarget}`);
             this.gazeTarget = null;
             this.gazeTimer = 0;
             this.gazeTriggered = false;
@@ -196,38 +202,39 @@ class App {
         }
     }
 
-    /**
-     * Phase 2: Non-Blocking Pipeline
-     */
     async triggerAIReaction(type) {
-        if (this.aiCooldown > 0) return;
+        if (this.aiCooldown > 0) {
+            console.log(`[AI] Cooldown active: ${this.aiCooldown.toFixed(1)}s remaining`);
+            return;
+        }
         this.aiCooldown = 5.0;
+        this.idleTimer = 0; // Reset idle timer on active interaction
 
-        interrupt(); // Stop previous voice/activity
+        console.log(`[AI] Starting reaction for ${type}...`);
+        interrupt(); 
         this.orb.setState(OrbState.THINKING); 
 
         try {
             const prompt = `User is staring at the ${type}. React as Orbix. One short sentence.`;
+            const response = await chatWithAI(prompt);
+            console.log(`[AI] Response received: "${response}"`);
             
-            // 1. Fetch AI Response (Async)
-            const aiPromise = chatWithAI(prompt);
-            
-            // 2. Immediate Visual State (Thinking) is already set
-            const response = await aiPromise;
-            
-            // 3. Immediate UI Feedback (Text)
             this.orb.setState(OrbState.SPEAKING);
             this.chatUI.show(response);
             
-            // 4. Parallel Voice Playback (Non-blocking)
+            console.log(`[AI] Requesting speech for: "${response}"`);
             speak(response).then(() => {
+                console.log(`[AI] Speech finished for: "${response}"`);
                 if (this.orb.currentState === OrbState.SPEAKING) {
                     this.orb.setState(OrbState.IDLE);
                 }
+            }).catch(err => {
+                console.error(`[AI] Speech failed:`, err);
+                this.orb.setState(OrbState.IDLE);
             });
 
         } catch (err) {
-            console.error("[Main] Interaction error:", err);
+            console.error("[AI] Interaction error:", err);
             this.orb.setState(OrbState.IDLE);
         }
     }
