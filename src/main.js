@@ -23,7 +23,7 @@ class App {
         this.aiCooldown = 0;
         
         this.setupLighting();
-        this.setupReticle();
+        this.setupGazeCursor();
         
         this.xrManager = new XRManager(this.renderer, this.scene, this.camera, (e) => this.onSelect(e));
         this.orb = new Orb(this.scene);
@@ -45,13 +45,18 @@ class App {
         this.scene.add(dirLight);
     }
 
-    setupReticle() {
-        const geometry = new THREE.RingGeometry(0.1, 0.15, 32).rotateX(-Math.PI / 2);
-        const material = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-        this.reticle = new THREE.Mesh(geometry, material);
-        this.reticle.matrixAutoUpdate = false;
-        this.reticle.visible = false;
-        this.scene.add(this.reticle);
+    setupGazeCursor() {
+        // A small 3D ring that follows the camera's center of gaze
+        const geometry = new THREE.RingGeometry(0.015, 0.02, 32);
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff, 
+            transparent: true, 
+            opacity: 0.8,
+            depthTest: false // Ensure it's always visible on top
+        });
+        this.gazeCursor = new THREE.Mesh(geometry, material);
+        this.gazeCursor.renderOrder = 999;
+        this.scene.add(this.gazeCursor);
     }
 
     loadModels() {
@@ -77,39 +82,37 @@ class App {
 
         // Load living room
         loader.load('/models/living_room.glb', (gltf) => {
-            console.log('[Assets] room loaded.');
             const room = gltf.scene;
             room.position.set(0, 0, 0); 
             room.userData.type = "room";
             this.scene.add(room);
         });
 
-        // 1. Laptop (On the Table - Closer)
+        // 1. Laptop (Closer, distinct hitbox)
         loader.load('/models/laptop.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(0, 0.8, -0.8);
+            obj.position.set(0.1, 0.8, -0.8);
             obj.scale.set(0.4, 0.4, 0.4);
             this.scene.add(obj);
-            // Large hitbox: easy to tap
-            createHitbox([0, 0.9, -0.8], [0.8, 0.5, 0.6], "laptop");
+            createHitbox([0.1, 0.9, -0.8], [0.6, 0.4, 0.5], "laptop");
         });
 
-        // 2. Desk Lamp (Small & Realistic)
+        // 2. Desk Lamp (Small)
         loader.load('/models/desk_lamp.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(0.4, 0.8, -0.9);
+            obj.position.set(0.5, 0.8, -0.9);
             obj.scale.set(0.12, 0.12, 0.12);
             this.scene.add(obj);
-            createHitbox([0.4, 1.0, -0.9], [0.4, 0.6, 0.4], "lamp");
+            createHitbox([0.5, 1.0, -0.9], [0.3, 0.5, 0.3], "lamp");
         });
 
-        // 3. Phone (Closer)
+        // 3. Phone (Scaled UP, moved to avoid laptop hitbox)
         loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
             const obj = gltf.scene;
-            obj.position.set(-0.4, 0.8, -0.7);
-            obj.scale.set(0.08, 0.08, 0.08);
+            obj.position.set(-0.5, 0.8, -0.8);
+            obj.scale.set(0.2, 0.2, 0.2); // Increased scale
             this.scene.add(obj);
-            createHitbox([-0.4, 0.9, -0.7], [0.3, 0.2, 0.4], "phone");
+            createHitbox([-0.5, 0.9, -0.8], [0.4, 0.2, 0.4], "phone");
         });
     }
 
@@ -120,13 +123,10 @@ class App {
 
         window.addEventListener('pointerdown', (e) => {
             console.log("[Interaction] Global tap detected.");
-            
-            // PROOF OF LIFE: This happens IMMEDIATELY on any tap
             if (this.orb) {
                 this.orb.setColor(0xffffff);
                 setTimeout(() => this.orb.setColor(0x00ffff), 200);
             }
-            
             this.onSelect(e);
         });
     }
@@ -138,8 +138,6 @@ class App {
     }
 
     onSelect(event) {
-        console.log("[Interaction] Running raycast check...");
-        
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
@@ -148,7 +146,6 @@ class App {
         activeCamera.getWorldDirection(camDir);
         
         this.raycaster.set(camPos, camDir);
-
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
         
         const hit = intersects.find(i => {
@@ -158,10 +155,8 @@ class App {
 
         if (hit) {
             const type = hit.object.userData.type;
-            console.log(`[Interaction] HIT HITBOX: ${type}`);
+            console.log(`[Interaction] Tapped on: ${type}`);
             this.triggerAIReaction(type);
-        } else {
-            console.log("[Interaction] Ray missed all targets.");
         }
     }
 
@@ -169,21 +164,16 @@ class App {
         if (this.aiCooldown > 0) return;
         this.aiCooldown = 8.0;
 
-        console.log(`[AI] Processing reaction for: ${type}`);
         this.orb.setColor(0xffaa00); 
-
         try {
             const prompt = `User interacted with a ${type}. React as Orbix. One short sentence.`;
             const response = await chatWithAI(prompt);
-            
-            console.log(`[AI] Response: "${response}"`);
             this.orb.setColor(0x00ffff);
             speak(response);
             
             const screenPos = this.getOrbScreenPosition();
             this.chatUI.show(response, screenPos.x, screenPos.y);
         } catch (err) {
-            console.error("[AI] Error:", err);
             this.orb.setColor(0x00ffff);
         }
     }
@@ -203,24 +193,37 @@ class App {
         const deltaTime = this.clock.getDelta();
         if (this.aiCooldown > 0) this.aiCooldown -= deltaTime;
 
-        if (frame) {
-            const hitPose = this.xrManager.updateHitTest(frame);
-            if (hitPose) {
-                this.reticle.visible = true;
-                this.reticle.matrix.fromArray(hitPose.transform.matrix);
-            } else {
-                this.reticle.visible = false;
-            }
-        }
-
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
-        const camRight = new THREE.Vector3();
-        const camUp = new THREE.Vector3(0, 1, 0);
         
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
+
+        // Update Gaze Cursor position
+        if (this.gazeCursor) {
+            const cursorDist = 1.0; // Distance in front of camera
+            const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(cursorDist));
+            this.gazeCursor.position.copy(cursorPos);
+            this.gazeCursor.lookAt(camPos);
+            
+            // Check for hover
+            this.raycaster.set(camPos, camDir);
+            const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+            const hover = intersects.find(i => i.object.userData.type && i.object.userData.type !== "room");
+            
+            if (hover) {
+                this.gazeCursor.scale.set(2, 2, 2);
+                this.gazeCursor.material.color.set(0x00ffff);
+            } else {
+                this.gazeCursor.scale.set(1, 1, 1);
+                this.gazeCursor.material.color.set(0xffffff);
+            }
+        }
+
+        // Update Orb (Shoulder Follow)
+        const camRight = new THREE.Vector3();
+        const camUp = new THREE.Vector3(0, 1, 0);
         camRight.crossVectors(camDir, camUp).normalize();
         
         const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
