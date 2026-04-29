@@ -33,7 +33,7 @@ class App {
         this.clock = new THREE.Clock();
         this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
         
-        window.addEventListener('resize', () => this.onWindowResize());
+        this.setupControls();
     }
 
     setupLighting() {
@@ -62,27 +62,22 @@ class App {
         const loader = new GLTFLoader();
         loader.setDRACOLoader(dracoLoader);
 
-        // Load living room
         loader.load('/models/living_room.glb', (gltf) => {
             console.log('[Assets] living_room.glb loaded.');
             const room = gltf.scene;
-            // Place room floor at y=0
             room.position.set(0, 0, 0); 
             this.scene.add(room);
         }, undefined, (e) => console.error('Could not load living_room.glb', e));
 
-        // Load laptop
         loader.load('/models/laptop.glb', (gltf) => {
             console.log('[Assets] laptop.glb loaded.');
             const laptop = gltf.scene;
-            // Place on table: assuming table height is ~0.8m
             laptop.position.set(0, 0.8, -1.5);
             laptop.scale.set(0.5, 0.5, 0.5);
             laptop.userData.type = "laptop";
             this.scene.add(laptop);
         }, undefined, (e) => console.error('Could not load laptop.glb', e));
 
-        // Load desk lamp
         loader.load('/models/desk_lamp.glb', (gltf) => {
             const lamp = gltf.scene;
             lamp.position.set(0.6, 0.8, -1.6);
@@ -91,7 +86,6 @@ class App {
             this.scene.add(lamp);
         }, undefined, (e) => console.warn('Could not load desk_lamp.glb', e));
 
-        // Load phone
         loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
             const phone = gltf.scene;
             phone.position.set(-0.6, 0.8, -1.2);
@@ -101,6 +95,18 @@ class App {
         }, undefined, (e) => console.warn('Could not load phone.glb', e));
     }
 
+    setupControls() {
+        window.addEventListener('resize', () => this.onWindowResize());
+        window.addEventListener('keydown', (e) => this.keys[e.code] = true);
+        window.addEventListener('keyup', (e) => this.keys[e.code] = false);
+
+        // Fallback for general mobile tap or non-XR mode
+        window.addEventListener('pointerdown', (e) => {
+            console.log("[Interaction] Pointer down event.");
+            this.onSelect(e);
+        });
+    }
+
     onWindowResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
@@ -108,7 +114,12 @@ class App {
     }
 
     onSelect(event) {
-        console.log("[Interaction] XR Select event triggered.");
+        console.log("[Interaction] Handling selection...");
+        
+        // IMMEDIATE FEEDBACK: Proof the event reached this function
+        this.orb.setColor(0xffffff);
+        setTimeout(() => this.orb.setColor(0x00ffff), 200);
+
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
@@ -119,8 +130,7 @@ class App {
         this.raycaster.set(camPos, camDir);
 
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-        console.log(`[Interaction] Raycaster found ${intersects.length} objects.`);
-
+        
         const hit = intersects.find(i => {
             let obj = i.object;
             while (obj) {
@@ -141,37 +151,30 @@ class App {
                 obj = obj.parent;
             }
 
-            console.log(`[Interaction] Hit detected on type: ${type}`);
+            console.log(`[Interaction] Hit confirmed: ${type}`);
             if (type !== 'orb') {
                 this.triggerAIReaction(type);
             }
         } else {
-            console.log("[Interaction] No interactive object hit.");
+            console.log("[Interaction] Miss: No interactive object under gaze.");
         }
     }
 
     async triggerAIReaction(type) {
         if (this.aiCooldown > 0) {
-            console.log(`[AI] On cooldown (${this.aiCooldown.toFixed(1)}s remaining)`);
+            console.log(`[AI] Cooldown active: ${this.aiCooldown.toFixed(1)}s`);
             return;
         }
         this.aiCooldown = 8.0;
 
-        console.log(`[AI] Starting reaction to ${type}...`);
-        
+        console.log(`[AI] Requesting reaction for ${type}`);
         this.orb.setColor(0xffaa00); 
 
         try {
-            // USER GESTURE UNLOCK (Required for mobile audio)
-            if (window.speechSynthesis) {
-                const silentUtterance = new SpeechSynthesisUtterance(" ");
-                window.speechSynthesis.speak(silentUtterance);
-            }
-
-            const prompt = `User interacted with a ${type}. React to this as Orbix. One short sentence.`;
+            const prompt = `User interacted with a ${type}. React as Orbix. One short sentence.`;
             const response = await chatWithAI(prompt);
             
-            console.log(`[AI] Received response: "${response}"`);
+            console.log(`[AI] Proxy Response: "${response}"`);
             this.orb.setColor(0x00ffff);
             
             speak(response);
@@ -179,9 +182,8 @@ class App {
             const screenPos = this.getOrbScreenPosition();
             this.chatUI.show(response, screenPos.x, screenPos.y);
         } catch (err) {
-            console.error("[AI] Error in triggerAIReaction:", err);
+            console.error("[AI] Reaction failed:", err);
             this.orb.setColor(0x00ffff);
-            this.chatUI.show("My connection is unstable.", window.innerWidth/2, window.innerHeight/2);
         }
     }
 
@@ -198,10 +200,8 @@ class App {
 
     render(time, frame) {
         const deltaTime = this.clock.getDelta();
-        
         if (this.aiCooldown > 0) this.aiCooldown -= deltaTime;
 
-        // Update Reticle
         if (frame) {
             const hitPose = this.xrManager.updateHitTest(frame);
             if (hitPose) {
@@ -212,7 +212,6 @@ class App {
             }
         }
 
-        // Update Orb (Shoulder Follow)
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
@@ -223,10 +222,9 @@ class App {
         activeCamera.getWorldDirection(camDir);
         camRight.crossVectors(camDir, camUp).normalize();
         
-        // Positioning inside the room: slightly forward, right, and at eye level
         const offset = camDir.clone().multiplyScalar(this.orb.targetDistance)
             .add(camRight.multiplyScalar(0.8))
-            .add(new THREE.Vector3(0, 0.2, 0)); // Slightly above eye level
+            .add(new THREE.Vector3(0, 0.2, 0));
 
         const targetPos = camPos.clone().add(offset).add(this.orb.jitter);
         
