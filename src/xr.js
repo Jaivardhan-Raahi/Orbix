@@ -39,11 +39,15 @@ export class XRManager {
     async startAR() {
         try {
             console.log('WebXR: Requesting immersive-ar session...');
-            const session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['hit-test'],
-                optionalFeatures: ['dom-overlay'],
+            
+            // We move hit-test to optional features to see if the session can start without it.
+            // Some devices might fail if hit-test is required but not perfectly configured.
+            const sessionOptions = {
+                optionalFeatures: ['hit-test', 'dom-overlay'],
                 domOverlay: { root: document.body }
-            });
+            };
+
+            const session = await navigator.xr.requestSession('immersive-ar', sessionOptions);
             
             console.log('WebXR: Session granted.');
             this.renderer.xr.setSession(session);
@@ -57,8 +61,10 @@ export class XRManager {
             // Hide landing UI and trigger fade-in
             document.getElementById('landing-ui').style.display = 'none';
             const fade = document.getElementById('fade-overlay');
-            fade.style.opacity = '1';
-            setTimeout(() => { fade.style.opacity = '0'; }, 100);
+            if (fade) {
+                fade.style.opacity = '1';
+                setTimeout(() => { fade.style.opacity = '0'; }, 100);
+            }
 
             session.addEventListener('end', () => {
                 console.log('WebXR: Session ended.');
@@ -70,7 +76,13 @@ export class XRManager {
 
         } catch (error) {
             console.error('WebXR: Failed to start session:', error);
-            alert('Could not start AR session. Check console for details.');
+            // More detailed error message for the user
+            let msg = 'Could not start AR session.';
+            if (error.name === 'NotSupportedError') msg += '\nYour device/browser might not support AR.';
+            else if (error.name === 'SecurityError') msg += '\nAR requires a secure HTTPS connection.';
+            else msg += `\nError: ${error.message}`;
+            
+            alert(msg);
         }
     }
 

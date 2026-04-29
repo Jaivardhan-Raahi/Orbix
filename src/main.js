@@ -54,6 +54,7 @@ class App {
     }
 
     loadModels() {
+        console.log('[Assets] Starting to load models...');
         const dracoLoader = new DRACOLoader();
         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
         
@@ -62,20 +63,21 @@ class App {
 
         // Load living room
         loader.load('/models/living_room.glb', (gltf) => {
+            console.log('[Assets] living_room.glb loaded.');
             const room = gltf.scene;
-            // Position room so user is inside
             room.position.set(0, -1.6, 0); 
             this.scene.add(room);
-        }, undefined, (e) => console.warn('Could not load living_room.glb', e));
+        }, undefined, (e) => console.error('Could not load living_room.glb', e));
 
         // Load laptop
         loader.load('/models/laptop.glb', (gltf) => {
+            console.log('[Assets] laptop.glb loaded.');
             const laptop = gltf.scene;
             laptop.position.set(0, -0.5, -2);
             laptop.scale.set(0.5, 0.5, 0.5);
             laptop.userData.type = "laptop";
             this.scene.add(laptop);
-        }, undefined, (e) => console.warn('Could not load laptop.glb', e));
+        }, undefined, (e) => console.error('Could not load laptop.glb', e));
 
         // Load desk lamp
         loader.load('/models/desk_lamp.glb', (gltf) => {
@@ -229,9 +231,10 @@ class App {
             const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0, 1, 0)).normalize();
             
             // AI target position: 2m forward, 1m right
+            // We use clone() to avoid modifying camDir
             const aiTarget = camPos.clone()
-                .add(camDir.multiplyScalar(2))
-                .add(right.multiplyScalar(1));
+                .add(camDir.clone().multiplyScalar(2))
+                .add(right.clone().multiplyScalar(1));
             
             // Preserve Y
             aiTarget.y = 0;
