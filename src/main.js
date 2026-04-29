@@ -11,7 +11,9 @@ class App {
     constructor() {
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-        this.camera.position.set(0, 1.6, 0); 
+        
+        // Position user near the desk (assuming desk is near origin)
+        this.camera.position.set(0, 1.6, 1.2); 
         
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -25,7 +27,7 @@ class App {
         this.aiCooldown = 0;
         this.gazeTarget = null;
         this.gazeTimer = 0;
-        this.gazeThreshold = 2.0; // 2 seconds to trigger
+        this.gazeThreshold = 2.0; 
         this.gazeTriggered = false;
 
         this.setupLighting();
@@ -43,10 +45,10 @@ class App {
     }
 
     setupLighting() {
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
         this.scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
         dirLight.position.set(5, 10, 7);
         this.scene.add(dirLight);
     }
@@ -65,56 +67,39 @@ class App {
     }
 
     loadModels() {
-        console.log('[Assets] Loading decoupled interior setup...');
+        console.log('[Assets] Loading consolidated scene.glb...');
         const dracoLoader = new DRACOLoader();
         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
         
         const loader = new GLTFLoader();
         loader.setDRACOLoader(dracoLoader);
 
-        const createHitbox = (pos, size, type) => {
-            const geo = new THREE.BoxGeometry(...size);
-            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, visible: false });
-            const hitbox = new THREE.Mesh(geo, mat);
-            hitbox.position.set(...pos);
-            hitbox.userData.type = type;
-            this.scene.add(hitbox);
-            return hitbox;
-        };
+        // Load the custom scene
+        loader.load('/models/scene.glb', (gltf) => {
+            const model = gltf.scene;
+            model.position.set(0, 0, 0); 
+            this.scene.add(model);
 
-        loader.load('/models/living_room.glb', (gltf) => {
-            const room = gltf.scene;
-            room.position.set(0, 0, 0); 
-            room.userData.type = "room";
-            this.scene.add(room);
-        });
+            // Traverse and auto-tag objects by mesh name
+            model.traverse((node) => {
+                if (node.isMesh) {
+                    const name = node.name.toLowerCase();
+                    
+                    // Logic to detect meaningful objects in the consolidated GLB
+                    if (name.includes('laptop')) node.userData.type = 'laptop';
+                    else if (name.includes('phone') || name.includes('mobile')) node.userData.type = 'phone';
+                    else if (name.includes('lamp')) node.userData.type = 'lamp';
+                    else if (name.includes('desk') || name.includes('table')) node.userData.type = 'desk';
+                    else if (name.includes('book')) node.userData.type = 'book';
 
-        // 1. Laptop (Center-Left Table)
-        loader.load('/models/laptop.glb', (gltf) => {
-            const obj = gltf.scene;
-            obj.position.set(-0.8, 0.8, -1.2);
-            obj.scale.set(0.4, 0.4, 0.4);
-            this.scene.add(obj);
-            createHitbox([-0.8, 0.9, -1.2], [0.6, 0.3, 0.5], "laptop");
-        });
-
-        // 2. Desk Lamp (Far Right Corner)
-        loader.load('/models/desk_lamp.glb', (gltf) => {
-            const obj = gltf.scene;
-            obj.position.set(1.2, 0.8, -1.0);
-            obj.scale.set(0.12, 0.12, 0.12);
-            this.scene.add(obj);
-            createHitbox([1.2, 1.0, -1.0], [0.3, 0.5, 0.3], "lamp");
-        });
-
-        // 3. Phone (Near Center Table - Slightly Right)
-        loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
-            const obj = gltf.scene;
-            obj.position.set(0.2, 0.8, -0.6);
-            obj.scale.set(0.25, 0.25, 0.25);
-            this.scene.add(obj);
-            createHitbox([0.2, 0.85, -0.6], [0.3, 0.15, 0.4], "phone");
-        });
+                    if (node.userData.type) {
+                        console.log(`[Assets] Auto-tagged mesh "${node.name}" as type: ${node.userData.type}`);
+                    }
+                }
+            });
+            
+            console.log('[Assets] Custom scene loaded and auto-tagged.');
+        }, undefined, (e) => console.error('Could not load scene.glb', e));
     }
 
     setupControls() {
@@ -135,49 +120,38 @@ class App {
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
 
-        // Position Gaze Cursor
         if (this.gazeCursor) {
             const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(1.0));
             this.gazeCursor.position.copy(cursorPos);
             this.gazeCursor.lookAt(camPos);
         }
 
-        // Raycast for stare detection
         this.raycaster.set(camPos, camDir);
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
         
-        const hit = intersects.find(i => {
-            const type = i.object.userData.type;
-            return type && type !== "room" && type !== "orb";
-        });
+        const hit = intersects.find(i => i.object.userData.type && i.object.userData.type !== "orb");
 
         if (hit) {
             const type = hit.object.userData.type;
             
-            // If gazing at same object
             if (this.gazeTarget === type) {
                 if (!this.gazeTriggered) {
                     this.gazeTimer += deltaTime;
-                    
-                    // Visual feedback: Scale cursor based on progress
                     const scale = 1.0 + (this.gazeTimer / this.gazeThreshold) * 2.0;
                     this.gazeCursor.scale.set(scale, scale, scale);
                     this.gazeCursor.material.color.set(0x00ffff);
 
                     if (this.gazeTimer >= this.gazeThreshold) {
-                        console.log(`[Gaze] Stare successful: ${type}`);
                         this.triggerAIReaction(type);
                         this.gazeTriggered = true;
                     }
                 }
             } else {
-                // New target
                 this.gazeTarget = type;
                 this.gazeTimer = 0;
                 this.gazeTriggered = false;
             }
         } else {
-            // Looking at nothing/room
             this.gazeTarget = null;
             this.gazeTimer = 0;
             this.gazeTriggered = false;
@@ -190,9 +164,7 @@ class App {
         if (this.aiCooldown > 0) return;
         this.aiCooldown = 6.0;
 
-        console.log(`[AI] Reacting to stare on: ${type}`);
         this.orb.setColor(0xffaa00); 
-
         try {
             const prompt = `User is staring at the ${type}. React as Orbix. One short sentence.`;
             const response = await chatWithAI(prompt);
@@ -203,7 +175,6 @@ class App {
             const screenPos = this.getOrbScreenPosition();
             this.chatUI.show(response, screenPos.x, screenPos.y);
         } catch (err) {
-            console.error("[AI] Gaze reaction failed:", err);
             this.orb.setColor(0x00ffff);
         }
     }
@@ -225,7 +196,6 @@ class App {
 
         this.updateGaze(deltaTime);
 
-        // Update Orb (Shoulder Follow)
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
