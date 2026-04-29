@@ -62,37 +62,55 @@ class App {
         const loader = new GLTFLoader();
         loader.setDRACOLoader(dracoLoader);
 
+        // HELPER: Create an invisible hitbox for reliable interaction
+        const createHitbox = (pos, size, type) => {
+            const geo = new THREE.BoxGeometry(...size);
+            const mat = new THREE.MeshBasicMaterial({ 
+                color: 0xff0000, 
+                visible: false // Change to true to see hitboxes for debugging
+            });
+            const hitbox = new THREE.Mesh(geo, mat);
+            hitbox.position.set(...pos);
+            hitbox.userData.type = type;
+            this.scene.add(hitbox);
+            return hitbox;
+        };
+
+        // Load living room
         loader.load('/models/living_room.glb', (gltf) => {
             console.log('[Assets] living_room.glb loaded.');
             const room = gltf.scene;
             room.position.set(0, 0, 0); 
+            room.userData.type = "room"; // Tagged so we can ignore it in raycasting
             this.scene.add(room);
         }, undefined, (e) => console.error('Could not load living_room.glb', e));
 
+        // 1. Laptop + Hitbox
         loader.load('/models/laptop.glb', (gltf) => {
-            console.log('[Assets] laptop.glb loaded.');
-            const laptop = gltf.scene;
-            laptop.position.set(0, 0.8, -1.5);
-            laptop.scale.set(0.5, 0.5, 0.5);
-            laptop.userData.type = "laptop";
-            this.scene.add(laptop);
+            const obj = gltf.scene;
+            obj.position.set(0, 0.8, -1.5);
+            obj.scale.set(0.5, 0.5, 0.5);
+            this.scene.add(obj);
+            createHitbox([0, 0.85, -1.5], [0.6, 0.4, 0.5], "laptop");
         }, undefined, (e) => console.error('Could not load laptop.glb', e));
 
+        // 2. Desk Lamp + Hitbox
         loader.load('/models/desk_lamp.glb', (gltf) => {
-            const lamp = gltf.scene;
-            lamp.position.set(0.6, 0.8, -1.6);
-            lamp.scale.set(0.5, 0.5, 0.5);
-            lamp.userData.type = "desk lamp";
-            this.scene.add(lamp);
-        }, undefined, (e) => console.warn('Could not load desk_lamp.glb', e));
+            const obj = gltf.scene;
+            obj.position.set(0.6, 0.8, -1.6);
+            obj.scale.set(0.5, 0.5, 0.5);
+            this.scene.add(obj);
+            createHitbox([0.6, 1.0, -1.6], [0.3, 0.5, 0.3], "desk lamp");
+        }, undefined, (e) => console.error('Could not load desk_lamp.glb', e));
 
+        // 3. Phone + Hitbox
         loader.load('/models/low_poly_mobile_phone.glb', (gltf) => {
-            const phone = gltf.scene;
-            phone.position.set(-0.6, 0.8, -1.2);
-            phone.scale.set(0.1, 0.1, 0.1);
-            phone.userData.type = "phone";
-            this.scene.add(phone);
-        }, undefined, (e) => console.warn('Could not load phone.glb', e));
+            const obj = gltf.scene;
+            obj.position.set(-0.6, 0.8, -1.2);
+            obj.scale.set(0.1, 0.1, 0.1);
+            this.scene.add(obj);
+            createHitbox([-0.6, 0.85, -1.2], [0.2, 0.1, 0.3], "phone");
+        }, undefined, (e) => console.error('Could not load phone.glb', e));
     }
 
     setupControls() {
@@ -100,7 +118,6 @@ class App {
         window.addEventListener('keydown', (e) => this.keys[e.code] = true);
         window.addEventListener('keyup', (e) => this.keys[e.code] = false);
 
-        // Fallback for general mobile tap or non-XR mode
         window.addEventListener('pointerdown', (e) => {
             console.log("[Interaction] Pointer down event.");
             this.onSelect(e);
@@ -114,11 +131,11 @@ class App {
     }
 
     onSelect(event) {
-        console.log("[Interaction] Handling selection...");
+        console.log("[Interaction] Selection event.");
         
-        // IMMEDIATE FEEDBACK: Proof the event reached this function
+        // Split second flash to confirm the tap event reached the function
         this.orb.setColor(0xffffff);
-        setTimeout(() => this.orb.setColor(0x00ffff), 200);
+        setTimeout(() => this.orb.setColor(0x00ffff), 150);
 
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
@@ -131,43 +148,29 @@ class App {
 
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
         
+        // Find first hit that isn't the room or the orb itself
         const hit = intersects.find(i => {
-            let obj = i.object;
-            while (obj) {
-                if (obj.userData && obj.userData.type) return true;
-                obj = obj.parent;
-            }
-            return false;
+            const type = i.object.userData.type;
+            return type && type !== "room" && type !== "orb";
         });
 
         if (hit) {
-            let obj = hit.object;
-            let type = null;
-            while (obj) {
-                if (obj.userData && obj.userData.type) {
-                    type = obj.userData.type;
-                    break;
-                }
-                obj = obj.parent;
-            }
-
-            console.log(`[Interaction] Hit confirmed: ${type}`);
-            if (type !== 'orb') {
-                this.triggerAIReaction(type);
-            }
+            const type = hit.object.userData.type;
+            console.log(`[Interaction] Hit hitbox for: ${type}`);
+            this.triggerAIReaction(type);
         } else {
-            console.log("[Interaction] Miss: No interactive object under gaze.");
+            console.log("[Interaction] Ray missed all object hitboxes.");
         }
     }
 
     async triggerAIReaction(type) {
         if (this.aiCooldown > 0) {
-            console.log(`[AI] Cooldown active: ${this.aiCooldown.toFixed(1)}s`);
+            console.log(`[AI] Cooldown: ${this.aiCooldown.toFixed(1)}s remaining.`);
             return;
         }
         this.aiCooldown = 8.0;
 
-        console.log(`[AI] Requesting reaction for ${type}`);
+        console.log(`[AI] Requesting reaction for: ${type}`);
         this.orb.setColor(0xffaa00); 
 
         try {
@@ -182,7 +185,7 @@ class App {
             const screenPos = this.getOrbScreenPosition();
             this.chatUI.show(response, screenPos.x, screenPos.y);
         } catch (err) {
-            console.error("[AI] Reaction failed:", err);
+            console.error("[AI] Error:", err);
             this.orb.setColor(0x00ffff);
         }
     }
