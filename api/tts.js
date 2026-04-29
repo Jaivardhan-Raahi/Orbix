@@ -1,4 +1,4 @@
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'edge-tts-universal';
+import { UniversalEdgeTTS } from 'edge-tts-universal';
 
 // Force Node.js runtime to support edge-tts-universal dependencies
 export const runtime = "nodejs";
@@ -20,13 +20,12 @@ export default async function handler(req, res) {
     console.log(`[TTS] Generating audio for: "${text.substring(0, 30)}..."`);
 
     try {
-        const tts = new MsEdgeTTS();
+        // Correct usage for edge-tts-universal:
+        // New instance requires (text, voice)
+        const tts = new UniversalEdgeTTS(text, 'en-US-AriaNeural');
         
-        // Use a high-quality neural voice (ESM compatible)
-        await tts.setMetadata('en-US-AriaNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-
-        // Generate audio buffer
-        const audioBuffer = await tts.toAudio(text);
+        // Synthesize returns the full audio buffer
+        const audioBuffer = await tts.synthesize();
 
         if (!audioBuffer || audioBuffer.length === 0) {
             throw new Error("Empty audio buffer generated");
@@ -40,8 +39,6 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error("[TTS] Failure:", error.message);
-        // Fail gracefully: 500 status but don't crash. 
-        // Frontend is already programmed to skip audio on error.
         res.status(500).json({ error: "TTS failed", details: error.message });
     }
 }

@@ -72,15 +72,17 @@ class App {
     }
 
     setupGazeCursor() {
-        const geometry = new THREE.RingGeometry(0.015, 0.02, 32);
+        // Larger, more visible red reticle for XR
+        const geometry = new THREE.RingGeometry(0.02, 0.03, 32);
         const material = new THREE.MeshBasicMaterial({ 
-            color: 0xffffff, 
+            color: 0xff0000, 
             transparent: true, 
-            opacity: 0.8,
-            depthTest: false 
+            opacity: 1.0,
+            depthTest: false,
+            depthWrite: false
         });
         this.gazeCursor = new THREE.Mesh(geometry, material);
-        this.gazeCursor.renderOrder = 999;
+        this.gazeCursor.renderOrder = 9999;
         this.scene.add(this.gazeCursor);
     }
 
@@ -156,7 +158,8 @@ class App {
         activeCamera.getWorldDirection(camDir);
 
         if (this.gazeCursor) {
-            const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(1.0));
+            // Place reticle 1.5m in front of camera
+            const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(1.5));
             this.gazeCursor.position.copy(cursorPos);
             this.gazeCursor.lookAt(camPos);
         }
@@ -189,7 +192,7 @@ class App {
             this.gazeTimer = 0;
             this.gazeTriggered = false;
             this.gazeCursor.scale.set(1, 1, 1);
-            this.gazeCursor.material.color.set(0xffffff);
+            this.gazeCursor.material.color.set(0xff0000); // Reset to Red
         }
     }
 
