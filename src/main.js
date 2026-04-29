@@ -108,6 +108,7 @@ class App {
     }
 
     onSelect(event) {
+        console.log("[Interaction] XR Select event triggered.");
         const activeCamera = this.xrManager.getCamera();
         const camPos = new THREE.Vector3();
         const camDir = new THREE.Vector3();
@@ -118,6 +119,8 @@ class App {
         this.raycaster.set(camPos, camDir);
 
         const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        console.log(`[Interaction] Raycaster found ${intersects.length} objects.`);
+
         const hit = intersects.find(i => {
             let obj = i.object;
             while (obj) {
@@ -138,35 +141,37 @@ class App {
                 obj = obj.parent;
             }
 
-            console.log(`[Interaction] User tapped on: ${type}`);
+            console.log(`[Interaction] Hit detected on type: ${type}`);
             if (type !== 'orb') {
                 this.triggerAIReaction(type);
             }
+        } else {
+            console.log("[Interaction] No interactive object hit.");
         }
     }
 
     async triggerAIReaction(type) {
-        if (this.aiCooldown > 0) return;
+        if (this.aiCooldown > 0) {
+            console.log(`[AI] On cooldown (${this.aiCooldown.toFixed(1)}s remaining)`);
+            return;
+        }
         this.aiCooldown = 8.0;
 
-        console.log(`[AI] Reacting to: ${type}`);
+        console.log(`[AI] Starting reaction to ${type}...`);
         
-        // VISUAL FEEDBACK START
         this.orb.setColor(0xffaa00); 
 
-        // USER GESTURE UNLOCK
-        // We speak a tiny silent space to "hold" the user gesture 
-        // through the async fetch call.
-        const silentUtterance = new SpeechSynthesisUtterance(" ");
-        window.speechSynthesis.speak(silentUtterance);
-
-        const prompt = `User interacted with a ${type}. React to this as Orbix (strict blue orb AI companion). One short sentence.`;
-        
         try {
+            // USER GESTURE UNLOCK (Required for mobile audio)
+            if (window.speechSynthesis) {
+                const silentUtterance = new SpeechSynthesisUtterance(" ");
+                window.speechSynthesis.speak(silentUtterance);
+            }
+
+            const prompt = `User interacted with a ${type}. React to this as Orbix. One short sentence.`;
             const response = await chatWithAI(prompt);
-            console.log(`[AI] Response: ${response}`);
             
-            // VISUAL FEEDBACK END
+            console.log(`[AI] Received response: "${response}"`);
             this.orb.setColor(0x00ffff);
             
             speak(response);
@@ -174,9 +179,9 @@ class App {
             const screenPos = this.getOrbScreenPosition();
             this.chatUI.show(response, screenPos.x, screenPos.y);
         } catch (err) {
-            console.error("[AI] Error:", err);
+            console.error("[AI] Error in triggerAIReaction:", err);
             this.orb.setColor(0x00ffff);
-            speak("My connection is unstable.");
+            this.chatUI.show("My connection is unstable.", window.innerWidth/2, window.innerHeight/2);
         }
     }
 
