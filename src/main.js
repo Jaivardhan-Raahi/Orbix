@@ -9,7 +9,6 @@ import { ChatUI } from './ui.js';
 
 class App {
     constructor() {
-        this.initMobileConsole();
         console.log("[App] Starting Orbix...");
 
         this.scene = new THREE.Scene();
@@ -65,49 +64,6 @@ class App {
         this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
         
         this.setupControls();
-    }
-
-    initMobileConsole() {
-        const consoleDiv = document.getElementById('debug-console');
-        if (!consoleDiv) return;
-
-        consoleDiv.style.display = 'block';
-
-        const originalLog = console.log;
-        const originalError = console.error;
-
-        console.log = (...args) => {
-            originalLog.apply(console, args);
-            this.appendToConsole(args, '#00ff00');
-        };
-
-        console.error = (...args) => {
-            originalError.apply(console, args);
-            this.appendToConsole(args, '#ff4444');
-        };
-
-        window.onerror = (msg, url, line) => {
-            this.appendToConsole([`Error: ${msg} at ${line}`], '#ff0000');
-        };
-    }
-
-    appendToConsole(args, color) {
-        const consoleDiv = document.getElementById('debug-console');
-        if (!consoleDiv) return;
-
-        const p = document.createElement('div');
-        p.style.color = color;
-        p.style.marginBottom = '2px';
-        p.textContent = args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg) : arg
-        ).join(' ');
-
-        consoleDiv.appendChild(p);
-        consoleDiv.scrollTop = consoleDiv.scrollHeight;
-
-        if (consoleDiv.childNodes.length > 50) {
-            consoleDiv.removeChild(consoleDiv.firstChild);
-        }
     }
 
     setupLighting() {
