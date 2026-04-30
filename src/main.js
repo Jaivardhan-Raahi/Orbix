@@ -56,6 +56,7 @@ class App {
         this.xrManager = new XRManager(this.renderer, this.scene, this.camera, (e) => this.handleXRSelect(e));
         this.orb = new Orb(this.scene);
         
+        this.interactables = [];
         this.loadModels();
 
         this.clock = new THREE.Clock();
@@ -159,6 +160,9 @@ class App {
                     node.traverse((child) => {
                         if (child.isMesh) {
                             child.userData.type = type;
+                            if (!this.interactables.includes(child)) {
+                                this.interactables.push(child);
+                            }
                         }
                     });
                     console.log(`[Assets] Tagged ${node.name} and its meshes as ${type}`);
@@ -189,7 +193,7 @@ class App {
         this.raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
         this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        const intersects = this.raycaster.intersectObjects(this.interactables, false);
         const floorHit = intersects.find(i => i.object.userData.type === 'floor');
         
         if (floorHit) {
@@ -212,6 +216,13 @@ class App {
         activeCamera.getWorldPosition(camPos);
         activeCamera.getWorldDirection(camDir);
 
+        // Reset idle timer if user moves their head significantly
+        if (!this.lastCamDir) this.lastCamDir = camDir.clone();
+        if (this.lastCamDir.angleTo(camDir) > 0.05) {
+            this.idleTimer = 0;
+            this.lastCamDir.copy(camDir);
+        }
+
         if (this.gazeCursor) {
             const cursorPos = camPos.clone().add(camDir.clone().multiplyScalar(1.5));
             this.gazeCursor.position.copy(cursorPos);
@@ -219,7 +230,7 @@ class App {
         }
 
         this.raycaster.set(camPos, camDir);
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        const intersects = this.raycaster.intersectObjects(this.interactables, false);
         
         // --- Debug Log names of top hits ---
         if (intersects.length > 0 && Math.random() < 0.01) {
@@ -268,7 +279,12 @@ class App {
         this.orb.setState(OrbState.THINKING); 
 
         try {
-            const prompt = `User is staring at the ${type}. React as Orbix. One short sentence.`;
+            const prompts = [
+                `User is staring at the ${type}. React as Orbix. One short sentence.`,
+                `The user is looking at their ${type}. Say something motivating as Orbix in one sentence.`,
+                `As Orbix, give a short focus tip because the user is staring at the ${type}.`
+            ];
+            const prompt = prompts[Math.floor(Math.random() * prompts.length)];
             const response = await chatWithAI(prompt);
             
             this.orb.setState(OrbState.SPEAKING);
@@ -349,7 +365,12 @@ class App {
         this.orb.setState(OrbState.INTERVENE);
         
         try {
-            const prompt = "The user has been quiet. Say something to encourage them to stay focused. One short sentence.";
+            const prompts = [
+                "The user has been quiet. Say something to encourage them to stay focused. One short sentence.",
+                "It's been quiet. Give the user a short, motivating nudge as Orbix.",
+                "The user might be distracted. Say a quick one-sentence reminder to keep working."
+            ];
+            const prompt = prompts[Math.floor(Math.random() * prompts.length)];
             const response = await chatWithAI(prompt);
             
             this.orb.setState(OrbState.SPEAKING);
