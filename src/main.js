@@ -59,6 +59,8 @@ class App {
         this.interactables = [];
         this.loadModels();
 
+        this.setupSpeechRecognition();
+
         this.clock = new THREE.Clock();
         this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
         
@@ -115,6 +117,67 @@ class App {
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
         dirLight.position.set(5, 10, 7);
         this.scene.add(dirLight);
+    }
+
+    setupSpeechRecognition() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            console.warn("[STT] Speech Recognition API not supported in this browser.");
+            return;
+        }
+        
+        this.recognition = new SpeechRecognition();
+        this.recognition.continuous = false;
+        this.recognition.interimResults = false;
+        this.recognition.lang = 'en-US';
+        this.isListening = false;
+
+        this.recognition.onstart = () => {
+            this.isListening = true;
+            this.orb.setState(OrbState.THINKING);
+            console.log("[STT] Listening to user...");
+            this.chatUI.show("Listening...");
+        };
+
+        this.recognition.onresult = async (event) => {
+            const transcript = event.results[0][0].transcript;
+            console.log(`[STT] User said: "${transcript}"`);
+            this.chatUI.show(`You: ${transcript}`);
+            
+            try {
+                this.aiCooldown = 10.0;
+                this.idleTimer = 0;
+                const prompt = `User said: "${transcript}". Reply to the user as Orbix. One short sentence.`;
+                const response = await chatWithAI(prompt);
+                
+                this.orb.setState(OrbState.SPEAKING);
+                this.chatUI.show(response);
+                
+                speak(response).then(() => {
+                    if (this.orb.currentState === OrbState.SPEAKING) {
+                        this.orb.setState(OrbState.IDLE);
+                    }
+                });
+            } catch (err) {
+                console.error("[STT] AI Error:", err);
+                this.orb.setState(OrbState.IDLE);
+            }
+        };
+
+        this.recognition.onerror = (event) => {
+            console.error("[STT] Error:", event.error);
+            this.isListening = false;
+            this.orb.setState(OrbState.IDLE);
+            this.chatUI.hide();
+        };
+
+        this.recognition.onend = () => {
+            this.isListening = false;
+            if (this.orb.currentState === OrbState.THINKING) {
+                this.orb.setState(OrbState.IDLE);
+                this.chatUI.hide();
+            }
+        };
     }
 
     setupGazeCursor() {
@@ -203,6 +266,11 @@ class App {
         if (floorHit) {
             this.targetPosition.copy(floorHit.point);
             this.targetPosition.y = 0; 
+        } else {
+            if (this.recognition && !this.isListening) {
+                interrupt();
+                this.recognition.start();
+            }
         }
     }
 
@@ -261,6 +329,7 @@ class App {
             const type = hitType;
             if (this.gazeTarget === type) {
                 if (!this.gazeTriggered) {
+                    this.gazeGraceTimer = 0;
                     this.gazeTimer += deltaTime;
                     console.log(`[Gaze] Focus on ${type}: ${this.gazeTimer.toFixed(1)}s`);
                     
@@ -274,16 +343,24 @@ class App {
                     }
                 }
             } else {
-                this.gazeTarget = type;
-                this.gazeTimer = 0;
-                this.gazeTriggered = false;
+                this.gazeGraceTimer = (this.gazeGraceTimer || 0) + deltaTime;
+                if (this.gazeGraceTimer > 0.4) {
+                    this.gazeTarget = type;
+                    this.gazeTimer = 0;
+                    this.gazeTriggered = false;
+                    this.gazeGraceTimer = 0;
+                }
             }
         } else {
-            this.gazeTarget = null;
-            this.gazeTimer = 0;
-            this.gazeTriggered = false;
-            this.gazeCursor.scale.set(1, 1, 1);
-            this.gazeCursor.material.color.set(0xff0000); 
+            this.gazeGraceTimer = (this.gazeGraceTimer || 0) + deltaTime;
+            if (this.gazeGraceTimer > 0.4) {
+                this.gazeTarget = null;
+                this.gazeTimer = 0;
+                this.gazeTriggered = false;
+                this.gazeGraceTimer = 0;
+                this.gazeCursor.scale.set(1, 1, 1);
+                this.gazeCursor.material.color.set(0xff0000); 
+            }
         }
     }
 
