@@ -156,16 +156,13 @@ class App {
                 
                 if (type) {
                     node.userData.type = type;
-                    // Propagate to all child meshes since the group might hold the name but raycaster hits meshes
-                    node.traverse((child) => {
-                        if (child.isMesh) {
-                            child.userData.type = type;
-                            if (!this.interactables.includes(child)) {
-                                this.interactables.push(child);
-                            }
-                        }
-                    });
-                    console.log(`[Assets] Tagged ${node.name} and its meshes as ${type}`);
+                    console.log(`[Assets] Tagged ${node.name} as ${type}`);
+                }
+                
+                if (node.isMesh) {
+                    if (!this.interactables.includes(node)) {
+                        this.interactables.push(node);
+                    }
                 }
             });
         });
@@ -194,7 +191,14 @@ class App {
         this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
         const intersects = this.raycaster.intersectObjects(this.interactables, false);
-        const floorHit = intersects.find(i => i.object.userData.type === 'floor');
+        const floorHit = intersects.find(i => {
+            let obj = i.object;
+            while (obj) {
+                if (obj.userData.type === 'floor') return true;
+                obj = obj.parent;
+            }
+            return false;
+        });
         
         if (floorHit) {
             this.targetPosition.copy(floorHit.point);
@@ -237,10 +241,24 @@ class App {
             console.log(`[Gaze] Seeing: ${intersects.slice(0, 2).map(i => i.object.name).join(", ")}`);
         }
 
-        const hit = intersects.find(i => i.object.userData.type && i.object.userData.type !== "orb" && i.object.userData.type !== "floor");
+        let hitType = null;
+        const hit = intersects.find(i => {
+            let obj = i.object;
+            while (obj) {
+                if (obj.userData.type) {
+                    if (obj.userData.type === "orb" || obj.userData.type === "floor") {
+                        return false; 
+                    }
+                    hitType = obj.userData.type;
+                    return true;
+                }
+                obj = obj.parent;
+            }
+            return false;
+        });
 
-        if (hit) {
-            const type = hit.object.userData.type;
+        if (hit && hitType) {
+            const type = hitType;
             if (this.gazeTarget === type) {
                 if (!this.gazeTriggered) {
                     this.gazeTimer += deltaTime;
