@@ -1,4 +1,4 @@
-remove theimport 'dotenv/config';
+import 'dotenv/config';
 
 // Simple in-memory cache
 const cache = new Map();
